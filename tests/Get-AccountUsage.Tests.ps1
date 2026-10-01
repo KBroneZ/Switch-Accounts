@@ -18,9 +18,23 @@ Describe 'ConvertFrom-UsageText' {
         $usage.ResetsAt | Should -Be ([DateTimeOffset]::new(2030, 1, 1, 16, 30, 0, [TimeSpan]::Zero))
     }
 
-    It 'ignores the weekly bar' {
+    It 'ignores the weekly limit and the usage breakdown' {
         (ConvertFrom-UsageText -Text (Get-SampleUsageText -Percent '5') -Now $now).FiveHourPercent |
             Should -Be 5
+    }
+
+    It 'reads a reset time given in an IANA zone' {
+        $usage = ConvertFrom-UsageText -Text (Get-SampleUsageText -Resets 'Jan 1, 6:59pm (Europe/Madrid)') -Now $now
+
+        $usage.ResetsAt | Should -Be ([DateTimeOffset]::new(2030, 1, 1, 17, 59, 0, [TimeSpan]::Zero))
+    }
+
+    It 'keeps the percentage when the line has no reset time' {
+        $usage = ConvertFrom-UsageText -Text 'Current session: 12% used' -Now $now
+
+        $usage.Status | Should -Be 'Known'
+        $usage.FiveHourPercent | Should -Be 12
+        $usage.ResetsAt | Should -BeNullOrEmpty
     }
 
     It 'accepts decimals and 0%' -TestCases @(@{ P = '0'; E = 0 }, @{ P = '12.5'; E = 12.5 }, @{ P = '100'; E = 100 }) {
@@ -43,11 +57,12 @@ Describe 'ConvertFrom-UsageText' {
 
     It 'is Unknown when <Case>' -TestCases @(
         @{ Case = 'the text is empty'; Text = '' }
-        @{ Case = 'there is no current-session block'; Text = "Current week (all models)`n50% used" }
-        @{ Case = 'the block has no percentage'; Text = "Current session`nloading..." }
-        @{ Case = 'the CLI shows last-known (stale) bars'; Text = (Get-SampleUsageText) + "`nShowing last-known usage from 12 minutes ago" }
+        @{ Case = 'there is no current-session line'; Text = 'Current week (all models): 50% used' }
+        @{ Case = 'the line has no percentage'; Text = 'Current session: loading...' }
+        @{ Case = 'the percentage is on another line'; Text = "Current session`n50% used" }
+        @{ Case = 'the CLI shows last-known (stale) data'; Text = (Get-SampleUsageText) + "`nShowing last-known usage from 12 minutes ago" }
         @{ Case = 'the usage endpoint is rate limited'; Text = 'Usage endpoint is rate limited. Press r to retry.' }
-        @{ Case = 'there are two current-session blocks'; Text = (Get-SampleUsageText) + "`n" + (Get-SampleUsageText) }
+        @{ Case = 'there are two current-session lines'; Text = (Get-SampleUsageText) + "`n" + (Get-SampleUsageText) }
         @{ Case = 'the percentage is out of range'; Text = (Get-SampleUsageText -Percent '140') }
     ) {
         $usage = ConvertFrom-UsageText -Text $Text -Now $now

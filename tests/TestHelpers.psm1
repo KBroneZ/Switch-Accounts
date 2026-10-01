@@ -39,23 +39,23 @@ function Get-FakeCalls {
     @(Get-Content -LiteralPath $log | ForEach-Object { $_ | ConvertFrom-Json })
 }
 
-# Synthetic /usage screens. The layout mirrors the plan-usage block of the CLI;
-# the numbers, times and zone are invented.
+# Synthetic `claude -p /usage` text. The layout mirrors what CLI 2.1.284 prints
+# (one line per limit, "NN% used · resets <when>"); the numbers, times and zone are invented.
 function Get-SampleUsageText {
-    param([string] $Percent = '37', [string] $Resets = '4:30pm (UTC)')
+    param([string] $Percent = '37', [string] $Resets = 'Jan 1, 4:30pm (UTC)')
+    $dot = [char]0x00B7
     @"
-Session
-Total cost:            `$0.00
-Total duration (API):  0s
+You are currently using your subscription to power your Claude Code usage
 
-Current session
-██████████████████▌                                37% used
-Resets $Resets
+Current session: $Percent% used $dot resets $Resets
+Current week (all models): 81% used $dot resets Jan 9, 9am (UTC)
 
-Current week (all models)
-████████████████████████████████████████▌          81% used
-Resets Oct 9, 9am (UTC)
-"@ -replace '37% used', "$Percent% used"
+What's contributing to your limits usage?
+Approximate, based on local sessions on this machine.
+
+Last 24h $dot 120 requests $dot 4 sessions
+  50% of your usage was at >150k context
+"@
 }
 
 function Get-FlagValues {
