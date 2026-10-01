@@ -29,6 +29,20 @@ Describe 'ConvertFrom-UsageText' {
         $usage.ResetsAt | Should -Be ([DateTimeOffset]::new(2030, 1, 1, 17, 59, 0, [TimeSpan]::Zero))
     }
 
+    It 'keeps a dated reset that has just passed instead of moving it a year ahead' {
+        # /usage prints minutes only, so for up to a minute the reset can look like the past.
+        $usage = ConvertFrom-UsageText -Text (Get-SampleUsageText -Resets 'Jan 1, 11:59am (UTC)') -Now $now
+
+        $usage.ResetsAt | Should -Be ([DateTimeOffset]::new(2030, 1, 1, 11, 59, 0, [TimeSpan]::Zero))
+    }
+
+    It 'moves a dated reset to next year across the new year' {
+        $dec = [DateTimeOffset]::new(2030, 12, 31, 22, 0, 0, [TimeSpan]::Zero)
+        $usage = ConvertFrom-UsageText -Text (Get-SampleUsageText -Resets 'Jan 1, 2am (UTC)') -Now $dec
+
+        $usage.ResetsAt | Should -Be ([DateTimeOffset]::new(2031, 1, 1, 2, 0, 0, [TimeSpan]::Zero))
+    }
+
     It 'keeps the percentage when the line has no reset time' {
         $usage = ConvertFrom-UsageText -Text 'Current session: 12% used' -Now $now
 

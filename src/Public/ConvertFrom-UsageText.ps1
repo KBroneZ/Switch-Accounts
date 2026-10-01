@@ -23,7 +23,7 @@ function ConvertFrom-UsageText {
     if ($sessionLines.Count -eq 0) { return New-UsageResult -Reason 'no "Current session" line in /usage output' }
     if ($sessionLines.Count -gt 1) { return New-UsageResult -Reason 'more than one "Current session" line in /usage output' }
 
-    $linePattern = '^\s*Current session:\s*(?<p>\d{1,3}(?:\.\d+)?)\s*%\s*used(?:\s*·\s*resets\s+(?<r>.+?))?\s*$'
+    $linePattern = '^\s*Current session:\s*(?<p>\d{1,3}(?:\.\d+)?)\s*%\s*used(?:\s*\u00B7\s*resets\s+(?<r>.+?))?\s*$'
     if ($sessionLines[0] -notmatch $linePattern) {
         return New-UsageResult -Reason 'no "% used" on the "Current session" line'
     }
@@ -71,7 +71,9 @@ function ConvertFrom-ResetText {
         $month = 1 + [Array]::FindIndex($months, [Predicate[string]] { param($n) $n -and $n -ieq $parts['mon'] })
         if ($month -lt 1) { return $null }
         try { $candidate = [datetime]::new($local.Year, $month, [int]$parts['day'], $hour, $minute, 0) } catch { return $null }
-        if ($candidate -le $local) { $candidate = $candidate.AddYears(1) }
+        # Only a date well in the past means "next year" (Dec -> Jan). /usage prints minutes only,
+        # so a reset can look up to a minute old; keep it, and the caller simply reads usage again.
+        if ($candidate -lt $local.AddDays(-30)) { $candidate = $candidate.AddYears(1) }
     } else {
         $candidate = [datetime]::new($local.Year, $local.Month, $local.Day, $hour, $minute, 0)
         if ($candidate -le $local) { $candidate = $candidate.AddDays(1) }
