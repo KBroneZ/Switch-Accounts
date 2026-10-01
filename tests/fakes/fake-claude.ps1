@@ -1,11 +1,12 @@
 # Test double for the Claude Code CLI. Never contacts any service.
 # Behaviour is driven by files inside $env:CLAUDE_CONFIG_DIR, so each fake
 # account answers differently and the tests can prove which config dir was used:
-#   fake-usage.json     body printed for `-p /usage`
-#   fake-session.jsonl  lines printed for any other `-p` prompt (stream-json)
-#   fake-exit-code.txt  exit code (default 0)
-#   fake-sleep.txt      seconds to sleep before answering
-# Every call is appended to fake-calls.jsonl with its arguments and working dir.
+#   fake-usage.json           body printed for `-p /usage`
+#   fake-session.jsonl        lines printed for any other prompt; a line "#sleep N" sleeps N seconds
+#   fake-session-action.ps1   script run in the working dir before printing (e.g. make a commit)
+#   fake-exit-code.txt        exit code (default 0)
+#   fake-sleep.txt            seconds to sleep before answering
+# Every call is appended to fake-calls.jsonl with its arguments, working dir and prompt.
 $ErrorActionPreference = 'Stop'
 $configDir = $env:CLAUDE_CONFIG_DIR
 if (-not $configDir) {
@@ -13,18 +14,33 @@ if (-not $configDir) {
     exit 97
 }
 
-$call = [ordered]@{ args = @($args); cwd = (Get-Location).Path }
+$printIndex = [Array]::IndexOf([string[]]$args, '-p')
+$prompt = if ($printIndex -ge 0 -and $printIndex + 1 -lt $args.Count -and -not "$($args[$printIndex + 1])".StartsWith('-')) {
+    $args[$printIndex + 1]
+} else {
+    [Console]::In.ReadToEnd()
+}
+
+$call = [ordered]@{ args = @($args); cwd = (Get-Location).Path; prompt = $prompt }
 Add-Content -LiteralPath (Join-Path $configDir 'fake-calls.jsonl') -Value ($call | ConvertTo-Json -Compress -Depth 5)
 
 $sleepFile = Join-Path $configDir 'fake-sleep.txt'
 if (Test-Path -LiteralPath $sleepFile) { Start-Sleep -Seconds ([int](Get-Content -LiteralPath $sleepFile -Raw)) }
 
-$promptIndex = [Array]::IndexOf([string[]]$args, '-p')
-$prompt = if ($promptIndex -ge 0 -and $promptIndex + 1 -lt $args.Count) { $args[$promptIndex + 1] } else { '' }
-$bodyFile = if ($prompt -eq '/usage') { 'fake-usage.json' } else { 'fake-session.jsonl' }
-$bodyPath = Join-Path $configDir $bodyFile
-if (Test-Path -LiteralPath $bodyPath) {
-    [Console]::Out.Write((Get-Content -LiteralPath $bodyPath -Raw))
+if ($prompt -eq '/usage') {
+    $usage = Join-Path $configDir 'fake-usage.json'
+    if (Test-Path -LiteralPath $usage) { [Console]::Out.Write((Get-Content -LiteralPath $usage -Raw)) }
+} else {
+    $action = Join-Path $configDir 'fake-session-action.ps1'
+    if (Test-Path -LiteralPath $action) { & $action | Out-Null }
+    $session = Join-Path $configDir 'fake-session.jsonl'
+    if (Test-Path -LiteralPath $session) {
+        foreach ($line in Get-Content -LiteralPath $session) {
+            if ($line -match '^#sleep (\d+)$') { Start-Sleep -Seconds ([int]$Matches[1]); continue }
+            [Console]::Out.WriteLine($line)
+            [Console]::Out.Flush()
+        }
+    }
 }
 
 $exitFile = Join-Path $configDir 'fake-exit-code.txt'
