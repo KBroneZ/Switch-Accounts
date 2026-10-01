@@ -32,7 +32,8 @@ function Invoke-PipelineCycle {
         [string[]] $ImplementerTools = @('Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'),
         [string[]] $ReviewerTools = @('Read', 'Glob', 'Grep', 'Bash(git diff *)', 'Bash(git log *)', 'Bash(git show *)'),
         [string] $ClaudePath = 'claude',
-        [string] $GhPath = 'gh'
+        [string] $GhPath = 'gh',
+        [switch] $DryRun
     )
 
     $ctx = New-PipelineContext -Bound $PSBoundParameters -Defaults @{
@@ -43,11 +44,12 @@ function Invoke-PipelineCycle {
     }
     $state = Read-PipelineState -StateDir $ctx.StateDir
     $tasks = @(Get-QueueTask -QueueDir $QueueDir)
-    Invoke-Git -Path $RepoPath -Arguments @('fetch', '--quiet', '--prune', 'origin') | Out-Null
-
     $implementerJob = Get-ImplementerJob -Ctx $ctx -State $state -Tasks $tasks
     $reviewerJob = Get-ReviewerJob -Ctx $ctx -State $state -Tasks $tasks
     $jobs = @(@($implementerJob, $reviewerJob) | Where-Object { $_ })
+    if ($DryRun) { return Get-CyclePlan -ImplementerJob $implementerJob -ReviewerJob $reviewerJob }
+
+    Invoke-Git -Path $RepoPath -Arguments @('fetch', '--quiet', '--prune', 'origin') | Out-Null
     foreach ($job in $jobs) { Initialize-RoleWorktree -Ctx $ctx -Job $job }
 
     $running = foreach ($job in $jobs) { Start-RoleSession -Ctx $ctx -Job $job }
@@ -62,6 +64,21 @@ function Invoke-PipelineCycle {
     if ($reviewerJob) { $result.Reviewer = Complete-ReviewerJob -Ctx $ctx -State $state -Job $reviewerJob -Session $sessions['reviewer'] }
     if ($state.tasks.Count -gt 0) { Save-PipelineState -StateDir $ctx.StateDir -State $state }
     [pscustomobject]$result
+}
+
+function Get-CyclePlan {
+    param($ImplementerJob, $ReviewerJob)
+    $describe = {
+        param($job)
+        if (-not $job) { return $null }
+        $kind = if ($job.Role -eq 'reviewer') { "review PR #$($job.Pr)" } elseif ($job.IsFix) { 'fix review findings' } else { 'implement' }
+        [pscustomobject]@{ Task = $job.Task.Id; Outcome = $null; Reason = "$kind on $($job.Branch)"; RetryAfter = $null; Status = 'planned' }
+    }
+    [pscustomobject]@{
+        Implementer = & $describe $ImplementerJob
+        Reviewer    = & $describe $ReviewerJob
+        Idle        = -not ($ImplementerJob -or $ReviewerJob)
+    }
 }
 
 function New-PipelineContext {

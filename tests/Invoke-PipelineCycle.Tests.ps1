@@ -249,4 +249,63 @@ Set-Content -LiteralPath x.txt -Value x; git add -A; git -c user.email=a@example
         $cycle.Idle | Should -BeTrue
         @(Get-SessionCalls $a) | Should -HaveCount 0
     }
+    It 'with -DryRun reports the planned work without running sessions or touching git' {
+        Add-QueueTask $repo '001-first.md'
+
+        $plan = Invoke-Cycle $repo $a $b -Extra @{ DryRun = $true }
+
+        $plan.Implementer.Task | Should -Be '001'
+        $plan.Implementer.Status | Should -Be 'planned'
+        @(Get-SessionCalls $a) | Should -HaveCount 0
+        Test-Path -LiteralPath (Join-Path $repo.State 'worktrees') | Should -BeFalse
+    }
+}
+
+Describe 'run-pipeline.ps1' {
+    BeforeEach {
+        $env:FAKE_GH_DIR = (New-Item -ItemType Directory -Path (Join-Path $TestDrive "gh-$([guid]::NewGuid())")).FullName
+        $repo = New-TestRepo
+        $a = New-PipelineAccount -Name 'A'
+        $b = New-PipelineAccount -Name 'B'
+        Set-ImplementerCommits -Account $a
+        Set-SessionResult -Account $b -Text "VERDICT: APPROVED"
+        $script = Join-Path $PSScriptRoot '..' 'scripts' 'run-pipeline.ps1'
+        $common = @{
+            RepoPath = $repo.Clone; QueueDir = $repo.Queue; StateDir = $repo.State
+            AccountAConfigDir = $a.ConfigDir; AccountBConfigDir = $b.ConfigDir
+            MaxFiveHourPercentA = 70; MaxFiveHourPercentB = 50
+            ClaudePath = $fakeClaude; GhPath = $fakeGh
+        }
+    }
+    AfterEach { Remove-Item Env:FAKE_GH_DIR -ErrorAction SilentlyContinue }
+
+    It 'runs cycles until there is nothing left to do and exits 0' {
+        Add-QueueTask $repo '001-first.md'
+
+        & $script @common -MaxCycles 5 *> $null
+
+        $LASTEXITCODE | Should -Be 0
+        (Get-TaskState $repo '001').status | Should -Be 'approved'
+    }
+
+    It 'exits 3 when no role can run because of usage, without waiting by default' {
+        Add-QueueTask $repo '001-first.md'
+        New-FakeAccount -Path $a.ConfigDir -UsageText (Get-SampleUsageText -Percent '95') | Out-Null
+
+        & $script @common -MaxCycles 5 *> $null
+
+        $LASTEXITCODE | Should -Be 3
+        @(Get-SessionCalls $a) | Should -HaveCount 0
+    }
+
+    It 'applies each account''s own cap' {
+        Add-QueueTask $repo '001-first.md'
+        New-FakeAccount -Path $b.ConfigDir -UsageText (Get-SampleUsageText -Percent '60') | Out-Null
+
+        & $script @common -MaxCycles 5 *> $null
+
+        (Get-TaskState $repo '001').status | Should -Be 'in-review'
+        @(Get-SessionCalls $b) | Should -HaveCount 0
+        $LASTEXITCODE | Should -Be 3
+    }
 }
