@@ -5,7 +5,7 @@ while **account B reviews** the pull request of the previous task. Each account 
 git worktree and branch, and each one stops at a cap you set on its **5-hour usage window**.
 
 > **Unofficial.** Switch-Accounts is an independent PowerShell tool that works with the Claude Code
-> CLI. It is not made, endorsed or supported by Anthropic.
+> CLI. It is not affiliated with Anthropic, and it is not made, endorsed or supported by Anthropic.
 
 ## Read this first: terms of use
 
