@@ -67,9 +67,22 @@ function Complete-ReviewerJob {
     New-RoleResult $Job $Session $record.status $record['reason']
 }
 
+function Block-OversizedReview {
+    param($Ctx, $State, $Job)
+    $reason = "diff is larger than MaxReviewDiffBytes ($($Ctx.MaxReviewDiffBytes)); review it by hand"
+    Set-TaskRecord -State $State -Id $Job.Task.Id -Values @{ status = 'blocked'; reason = $reason }
+    [pscustomobject]@{ Task = $Job.Task.Id; Outcome = $null; Reason = $reason; RetryAfter = $null; Status = 'blocked' }
+}
+
+$script:MaxCommentChars = 60000
+
 function Submit-Review {
     param($Ctx, $State, $Job, [string] $Verdict, [string] $Text)
-    $run = Invoke-Gh -Ctx $Ctx -Arguments @('pr', 'comment', [string]$Job.Pr) -Body $Text
+    if (Test-SecretText -Text $Text) {
+        return @{ status = 'blocked'; reason = 'review text looks like it contains a secret; nothing was posted' }
+    }
+    $body = if ($Text.Length -gt $script:MaxCommentChars) { $Text.Substring(0, $script:MaxCommentChars) + "`n`n[truncated]" } else { $Text }
+    $run = Invoke-Gh -Ctx $Ctx -Arguments @('pr', 'comment', [string]$Job.Pr) -Body $body
     if ($run.ExitCode -ne 0) { return @{ status = 'blocked'; reason = "could not post the review: $(Get-ShortText $run.StdErr)" } }
     if ($Verdict -eq 'APPROVED') { return @{ status = 'approved'; reason = $null } }
     $rounds = [int]$State.tasks[$Job.Task.Id].rounds + 1

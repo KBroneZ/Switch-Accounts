@@ -29,10 +29,10 @@ function Invoke-PipelineCycle {
         [ValidateRange(0, 10)] [int] $MaxReviewRounds = 2,
         [ValidateRange(1, 100)] [int] $MaxTasksPerDay = 2,
         [ValidateRange(1, 10000)] [int] $MaxChangedFiles = 40,
-        [string[]] $ImplementerTools = @('Read', 'Edit', 'Write', 'Glob', 'Grep',
-            'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)'),
+        [ValidateRange(1, 10000000)] [int] $MaxReviewDiffBytes = 200000,
+        # Reads and edits inside the worktree need no rule (acceptEdits / dontAsk); keep these narrow.
+        [string[]] $ImplementerTools = @('Bash(git add *)', 'Bash(git commit *)', 'Bash(git status *)'),
         [string[]] $ExtraImplementerTools = @(),
-        [string[]] $ReviewerTools = @('Read', 'Glob', 'Grep', 'Bash(git diff *)', 'Bash(git log *)', 'Bash(git show *)'),
         [string] $ClaudePath = 'claude',
         [string] $GhPath = 'gh',
         [switch] $DryRun
@@ -41,7 +41,8 @@ function Invoke-PipelineCycle {
     $ctx = New-PipelineContext -Bound $PSBoundParameters -Defaults @{
         BaseBranch = $BaseBranch; BranchPrefix = $BranchPrefix; MaxTurnsA = $MaxTurnsA; MaxTurnsB = $MaxTurnsB
         TimeoutMinutes = $TimeoutMinutes; MaxReviewRounds = $MaxReviewRounds; MaxTasksPerDay = $MaxTasksPerDay
-        MaxChangedFiles = $MaxChangedFiles; ImplementerTools = @($ImplementerTools) + $ExtraImplementerTools; ReviewerTools = $ReviewerTools
+        MaxChangedFiles = $MaxChangedFiles; ImplementerTools = @($ImplementerTools) + $ExtraImplementerTools
+        MaxReviewDiffBytes = $MaxReviewDiffBytes
         ClaudePath = $ClaudePath; GhPath = $GhPath
     }
     $state = Read-PipelineState -StateDir $ctx.StateDir
@@ -53,11 +54,14 @@ function Invoke-PipelineCycle {
 
     Invoke-Git -Path $RepoPath -Arguments @('fetch', '--quiet', '--prune', 'origin') | Out-Null
     foreach ($job in $jobs) { Initialize-RoleWorktree -Ctx $ctx -Job $job }
-
-    $running = @(foreach ($job in $jobs) { Start-RoleSession -Ctx $ctx -Job $job })
-    $sessions = Receive-RoleSessions -Running $running
-
     $result = [ordered]@{ Implementer = $null; Reviewer = $null; Idle = ($jobs.Count -eq 0) }
+    if ($reviewerJob -and [Text.Encoding]::UTF8.GetByteCount($reviewerJob.Diff) -gt $MaxReviewDiffBytes) {
+        $result.Reviewer = Block-OversizedReview -Ctx $ctx -State $state -Job $reviewerJob
+        $reviewerJob = $null
+    }
+
+    $running = @(foreach ($job in @($implementerJob, $reviewerJob) | Where-Object { $_ }) { Start-RoleSession -Ctx $ctx -Job $job })
+    $sessions = Receive-RoleSessions -Running $running
     if ($implementerJob) { $result.Implementer = Complete-ImplementerJob -Ctx $ctx -State $state -Job $implementerJob -Session $sessions['implementer'] }
     if ($reviewerJob) { $result.Reviewer = Complete-ReviewerJob -Ctx $ctx -State $state -Job $reviewerJob -Session $sessions['reviewer'] }
     if ($state.tasks.Count -gt 0) { Save-PipelineState -StateDir $ctx.StateDir -State $state }
@@ -144,6 +148,8 @@ function Initialize-RoleWorktree {
     if ($Job.Role -eq 'reviewer') {
         Initialize-Worktree -RepoPath $Ctx.RepoPath -Path $Ctx.WorktreeB -BaseBranch $Ctx.BaseBranch
         Invoke-Git -Path $Ctx.WorktreeB -Arguments @('checkout', '--quiet', '--detach', "origin/$($Job.Branch)") | Out-Null
+        # The reviewer gets no shell: the pipeline computes the diff and puts it in the prompt.
+        $Job.Diff = Invoke-Git -Path $Ctx.WorktreeB -Arguments @('diff', '--no-color', '--no-ext-diff', "origin/$($Ctx.BaseBranch)...HEAD")
         return
     }
     Initialize-Worktree -RepoPath $Ctx.RepoPath -Path $Ctx.WorktreeA -BaseBranch $Ctx.BaseBranch
@@ -155,15 +161,16 @@ function Initialize-RoleWorktree {
 function Start-RoleSession {
     param($Ctx, $Job)
     $params = if ($Job.Role -eq 'implementer') {
-        @{ Account = $Ctx.AccountA; WorkingDirectory = $Ctx.WorktreeA; MaxTurns = $Ctx.MaxTurnsA
+        @{ Account = $Ctx.AccountA; WorkingDirectory = $Ctx.WorktreeA; MaxTurns = $Ctx.MaxTurnsA; PermissionMode = 'acceptEdits'
             Prompt = (New-ImplementerPrompt -Task $Job.Task -Branch $Job.Branch -Findings $Job.Findings)
             AllowedTools = $Ctx.ImplementerTools; DisallowedTools = @('Bash(git push)', 'Bash(git push *)', 'Bash(gh *)') }
     } else {
-        @{ Account = $Ctx.AccountB; WorkingDirectory = $Ctx.WorktreeB; MaxTurns = $Ctx.MaxTurnsB
-            Prompt = (New-ReviewerPrompt -Task $Job.Task -Branch $Job.Branch -BaseBranch $Ctx.BaseBranch -Pr $Job.Pr)
-            AllowedTools = $Ctx.ReviewerTools; DisallowedTools = @('Edit', 'Write', 'NotebookEdit') }
+        @{ Account = $Ctx.AccountB; WorkingDirectory = $Ctx.WorktreeB; MaxTurns = $Ctx.MaxTurnsB; PermissionMode = 'dontAsk'
+            Prompt = (New-ReviewerPrompt -Task $Job.Task -Branch $Job.Branch -BaseBranch $Ctx.BaseBranch -Pr $Job.Pr -Diff $Job.Diff)
+            AllowedTools = @(); DisallowedTools = @('Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell') }
     }
-    $params += @{ StateDir = $Ctx.StateDir; TimeoutMinutes = $Ctx.TimeoutMinutes; ClaudePath = $Ctx.ClaudePath }
+    $params += @{ StateDir = $Ctx.StateDir; TimeoutMinutes = $Ctx.TimeoutMinutes; ClaudePath = $Ctx.ClaudePath
+        DenyPaths = @($Ctx.AccountA.ConfigDir, $Ctx.AccountB.ConfigDir) }
     $manifest = Join-Path $PSScriptRoot '..' 'SwitchAccounts.psd1'
     $thread = Start-ThreadJob -ScriptBlock {
         Import-Module $using:manifest -Force

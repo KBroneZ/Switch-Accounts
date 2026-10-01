@@ -70,6 +70,32 @@ Describe 'Invoke-AccountSession' {
         $hook.args | Should -Contain $account.ConfigDir
     }
 
+    It 'ignores project settings and MCP servers from the working directory' {
+        $account = New-SessionAccount -Lines @((Get-ResultLine))
+
+        Invoke-AccountSession -Account $account -Prompt 'x' @common | Out-Null
+
+        $call = Get-FakeCalls -ConfigDir $account.ConfigDir | Where-Object { $_.prompt -ne '/usage' }
+        $line = $call.args -join ' '
+        $line | Should -Match '--setting-sources user'
+        $line | Should -Match '--strict-mcp-config'
+    }
+
+    It 'denies reads and edits of every config dir and blocks reads outside the working dir' {
+        $account = New-SessionAccount -Lines @((Get-ResultLine))
+        $other = Join-Path $TestDrive 'other config'
+
+        Invoke-AccountSession -Account $account -Prompt 'x' -DenyPaths $other @common | Out-Null
+
+        $call = Get-FakeCalls -ConfigDir $account.ConfigDir | Where-Object { $_.prompt -ne '/usage' }
+        $settings = $call.args[[Array]::IndexOf([string[]]$call.args, '--settings') + 1] | ConvertFrom-Json
+        $settings.permissions.blockReadsOutsideWorkingDirectories | Should -BeTrue
+        $own = ConvertTo-PermissionPath -Path $account.ConfigDir
+        $settings.permissions.deny | Should -Contain "Read($own)"
+        $settings.permissions.deny | Should -Contain "Edit($own)"
+        $settings.permissions.deny | Should -Contain "Read($(ConvertTo-PermissionPath -Path $other))"
+    }
+
     It 'does not start when the account is at its cap' {
         $account = New-SessionAccount -Percent '75' -Cap 70 -Lines @((Get-ResultLine))
 

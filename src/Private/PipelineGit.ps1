@@ -40,8 +40,13 @@ function Test-ImplementerWork {
     if ($files.Count -gt $MaxChangedFiles) {
         return "pull request would change $($files.Count) files (limit $MaxChangedFiles); nothing was pushed"
     }
+    $protected = $files | Where-Object { $_ -match $script:ProtectedPathPattern } | Select-Object -First 1
+    if ($protected) { return "change touches protected path $protected; review and push it by hand" }
     Find-SecretInChange -Worktree $Worktree -Files $files -BaseBranch $BaseBranch
 }
+
+# Files that change how tools, hooks or CI run; an automated session must not ship them.
+$script:ProtectedPathPattern = '^(\.claude/|\.mcp\.json$|\.github/|\.githooks/|\.gitmodules$|\.gitattributes$)'
 
 $script:SecretFilePattern = '(^|/)\.credentials\.json$'
 $script:SecretLinePatterns = @(
@@ -61,10 +66,15 @@ function Find-SecretInChange {
     $current = $null
     foreach ($line in $diff -split '\r?\n') {
         if ($line -match '^\+\+\+ b/(?<f>.+)$') { $current = $Matches['f']; continue }
-        if (-not $line.StartsWith('+')) { continue }
-        foreach ($pattern in $script:SecretLinePatterns) {
-            if ($line -match $pattern) { return "possible secret in $current; nothing was pushed" }
-        }
+        if ($line.StartsWith('+') -and (Test-SecretText -Text $line)) { return "possible secret in $current; nothing was pushed" }
     }
     $null
+}
+
+function Test-SecretText {
+    param([string] $Text)
+    foreach ($pattern in $script:SecretLinePatterns) {
+        if ($Text -match $pattern) { return $true }
+    }
+    $false
 }

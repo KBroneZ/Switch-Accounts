@@ -24,6 +24,7 @@ function Invoke-AccountSession {
         [ValidateRange(0.01, 1440)] [double] $TimeoutMinutes = 60,
         [string[]] $AllowedTools = @('Read', 'Glob', 'Grep'),
         [string[]] $DisallowedTools = @(),
+        [string[]] $DenyPaths = @(),
         [ValidateSet('dontAsk', 'acceptEdits', 'default', 'plan')] [string] $PermissionMode = 'dontAsk',
         [string] $ClaudePath = 'claude',
         [ValidateRange(1, 60)] [double] $GuardIntervalMinutes = 5
@@ -48,7 +49,10 @@ function Invoke-AccountSession {
         '--max-turns', $MaxTurns,
         '--permission-mode', $PermissionMode,
         '--permission-prompts', 'none',
-        '--settings', (New-GuardSettings -Account $Account -StatePath $guardState -ClaudePath $ClaudePath -IntervalMinutes $GuardIntervalMinutes)
+        # Settings and MCP servers committed in the working tree are untrusted input: ignore them.
+        '--setting-sources', 'user', '--strict-mcp-config',
+        '--settings', (New-SessionSettings -Account $Account -StatePath $guardState -ClaudePath $ClaudePath `
+                -IntervalMinutes $GuardIntervalMinutes -DenyPaths $DenyPaths)
     )
     # Variadic flags go last, one argument per rule, so rules with spaces stay intact.
     if ($DisallowedTools) { $arguments += @('--disallowedTools') + $DisallowedTools }
@@ -71,8 +75,10 @@ function Invoke-AccountSession {
         -NumTurns $summary.NumTurns -ResultText $summary.ResultText
 }
 
-function New-GuardSettings {
-    param($Account, [string] $StatePath, [string] $ClaudePath, [double] $IntervalMinutes)
+function New-SessionSettings {
+    # Session-only settings: the usage guard hook, no reads outside the working directories,
+    # and no reads or edits of any account config dir (credentials live there).
+    param($Account, [string] $StatePath, [string] $ClaudePath, [double] $IntervalMinutes, [string[]] $DenyPaths)
     $guardScript = Join-Path $PSScriptRoot '..' '..' 'scripts' 'usage-guard.ps1' | Resolve-Path
     $claude = Resolve-ExecutablePath -FilePath $ClaudePath
     $hook = [ordered]@{
@@ -83,7 +89,14 @@ function New-GuardSettings {
             '-StatePath', $StatePath, '-ClaudePath', $claude, '-IntervalMinutes', [string]$IntervalMinutes)
         timeout = 120
     }
-    @{ hooks = @{ PreToolUse = @(@{ matcher = '*'; hooks = @($hook) }) } } | ConvertTo-Json -Depth 6 -Compress
+    $deny = foreach ($dir in @($Account.ConfigDir) + $DenyPaths | Select-Object -Unique) {
+        $rule = ConvertTo-PermissionPath -Path $dir
+        "Read($rule)"; "Edit($rule)"
+    }
+    @{
+        hooks       = @{ PreToolUse = @(@{ matcher = '*'; hooks = @($hook) }) }
+        permissions = @{ deny = @($deny); blockReadsOutsideWorkingDirectories = $true }
+    } | ConvertTo-Json -Depth 6 -Compress
 }
 
 function New-SessionResult {

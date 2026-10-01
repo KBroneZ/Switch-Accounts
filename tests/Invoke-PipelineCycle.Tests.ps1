@@ -120,10 +120,14 @@ Describe 'Invoke-PipelineCycle' {
 
         Invoke-Cycle $repo $a $b | Out-Null
 
-        $reviewArgs = [string[]](Get-SessionCalls $b)[0].args
-        Get-FlagValues -Arguments $reviewArgs -Flag '--disallowedTools' | Should -Contain 'Edit'
-        Get-FlagValues -Arguments $reviewArgs -Flag '--disallowedTools' | Should -Contain 'Write'
-        Get-FlagValues -Arguments $reviewArgs -Flag '--allowedTools' | Should -Not -Contain 'Bash'
+        $reviewCall = (Get-SessionCalls $b)[0]
+        $reviewArgs = [string[]]$reviewCall.args
+        $denied = Get-FlagValues -Arguments $reviewArgs -Flag '--disallowedTools'
+        $denied | Should -Contain 'Edit'
+        $denied | Should -Contain 'Write'
+        $denied | Should -Contain 'Bash'
+        $reviewArgs | Should -Not -Contain '--allowedTools'
+        $reviewCall.prompt | Should -Match 'change-[0-9a-f]{6}\.txt'
         $comment = Get-GhCalls | Where-Object { $_.args[1] -eq 'comment' }
         $comment.args | Should -Contain '1'
         $comment.body | Should -Match 'VERDICT: APPROVED'
@@ -202,7 +206,14 @@ Set-Content -LiteralPath x.txt -Value x; git add -A; git -c user.email=a@example
         Invoke-Cycle $repo $a $b | Out-Null
 
         $implArgs = [string[]](Get-SessionCalls $a)[0].args
-        Get-FlagValues -Arguments $implArgs -Flag '--allowedTools' | Should -Not -Contain 'Bash'
+        $allowed = Get-FlagValues -Arguments $implArgs -Flag '--allowedTools'
+        $allowed | Should -Not -Contain 'Bash'
+        $allowed | Should -Not -Contain 'Read'
+        $allowed | Should -Not -Contain 'Edit'
+        $allowed | Should -Not -Match '^Bash\(git (diff|log|show)'
+        ($implArgs -join ' ') | Should -Match '--permission-mode acceptEdits'
+        $settings = $implArgs[[Array]::IndexOf($implArgs, '--settings') + 1] | ConvertFrom-Json
+        $settings.permissions.deny | Should -Contain "Read($(ConvertTo-PermissionPath -Path $b.ConfigDir))"
         $denied = Get-FlagValues -Arguments $implArgs -Flag '--disallowedTools'
         $denied | Should -Contain 'Bash(git push)'
         $denied | Should -Contain 'Bash(git push *)'
@@ -225,6 +236,47 @@ git add -A; git -c user.email=a@example.invalid -c user.name=A commit -q -m leak
         (Get-TaskState $repo '001').status | Should -Be 'blocked'
         (Get-TaskState $repo '001').reason | Should -Match 'secret'
         git -C $repo.Origin branch --list 'auto/001-first' | Should -BeNullOrEmpty
+    }
+
+    It 'blocks without pushing when the change touches <File>' -TestCases @(
+        @{ File = '.claude/settings.json' }, @{ File = '.mcp.json' }, @{ File = '.github/workflows/x.yml' },
+        @{ File = '.githooks/pre-push' }, @{ File = '.gitmodules' }
+    ) {
+        Add-QueueTask $repo '001-first.md'
+        Set-Content -LiteralPath (Join-Path $a.ConfigDir 'fake-session-action.ps1') -Value @"
+New-Item -ItemType Directory -Path (Split-Path -Parent './$File') -Force | Out-Null
+Set-Content -LiteralPath './$File' -Value 'x'
+git add -A -f; git -c user.email=a@example.invalid -c user.name=A commit -q -m protected
+"@
+
+        Invoke-Cycle $repo $a $b | Out-Null
+
+        (Get-TaskState $repo '001').status | Should -Be 'blocked'
+        (Get-TaskState $repo '001').reason | Should -Match 'protected path'
+        git -C $repo.Origin branch --list 'auto/001-first' | Should -BeNullOrEmpty
+    }
+
+    It 'does not post a review that looks like it contains a secret' {
+        Add-QueueTask $repo '001-first.md'
+        Set-SessionResult -Account $b -Text "VERDICT: APPROVED`ntoken sk-ant-oat01-SYNTHETICSYNTHETIC"
+        Invoke-Cycle $repo $a $b | Out-Null
+
+        Invoke-Cycle $repo $a $b | Out-Null
+
+        (Get-TaskState $repo '001').status | Should -Be 'blocked'
+        (Get-TaskState $repo '001').reason | Should -Match 'secret'
+        @(Get-GhCalls | Where-Object { $_.args[1] -eq 'comment' }) | Should -HaveCount 0
+    }
+
+    It 'blocks the review when the diff is larger than MaxReviewDiffBytes' {
+        Add-QueueTask $repo '001-first.md'
+        Invoke-Cycle $repo $a $b | Out-Null
+
+        Invoke-Cycle $repo $a $b -Extra @{ MaxReviewDiffBytes = 10 } | Out-Null
+
+        (Get-TaskState $repo '001').status | Should -Be 'blocked'
+        (Get-TaskState $repo '001').reason | Should -Match 'diff'
+        @(Get-SessionCalls $b) | Should -HaveCount 0
     }
 
     It 'stops for the user when A says it needs a human decision' {

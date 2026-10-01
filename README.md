@@ -88,11 +88,13 @@ review rounds, status) lives in `state.json` in the state folder, not in your ta
    A is told not to push, open PRs or switch branches, and deny rules for `git push` and `gh` are
    added. Shell rules are best effort, so the real guarantee is step 2: only the pipeline pushes.
 2. The pipeline checks A's work: still on the task branch, no uncommitted changes, at least one
-   commit, no more than `MaxChangedFiles` files, and no credential file or token-like line in the
-   added code. Then it pushes the branch (never force) and opens the PR.
-3. **B reviews** that PR in `worktrees/reviewer` with read-only tools (`Read`, `Glob`, `Grep`,
-   `git diff/log/show`; `Edit` and `Write` denied). Its final message starts with
-   `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`; the pipeline posts it as a PR comment.
+   commit, no more than `MaxChangedFiles` files, no **protected path** (`.claude/`, `.mcp.json`,
+   `.github/`, `.githooks/`, `.gitmodules`, `.gitattributes`) and no credential file or
+   token-like line in the added code. Then it pushes the branch (never force) and opens the PR.
+3. **B reviews** that PR in `worktrees/reviewer`. B has no shell and cannot edit: the pipeline
+   puts the diff in its prompt (up to `MaxReviewDiffBytes`) and B can only read files in its
+   worktree. Its final message starts with `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`;
+   if it contains nothing that looks like a token, the pipeline posts it as a PR comment.
 4. Requested changes go back to A on the same branch. After `MaxReviewRounds` (default 2) the
    task is **blocked** for you. Approved PRs stay open: **you merge them**.
 
@@ -136,14 +138,32 @@ if it cannot be parsed, the role still waits but without a known reset time.
 | `MaxReviewRounds` | 2 |
 | `MaxChangedFiles` | 40 |
 | Branch prefix | `auto/` |
-| Permission mode | `dontAsk` with `--permission-prompts none` |
-| Implementer tools (`-ImplementerTools`) | `Read`, `Edit`, `Write`, `Glob`, `Grep` and `git add/commit/status/diff/log` |
-| Reviewer tools (`-ReviewerTools`) | `Read`, `Glob`, `Grep` and `git diff/log/show` |
+| `MaxReviewDiffBytes` | 200000 (a larger diff blocks the task for a human review) |
+| Implementer | `acceptEdits` (edits only inside its worktree), allowed `git add/commit/status` |
+| Reviewer | `dontAsk`, no shell, `Edit`/`Write` denied |
+| Both | `--permission-prompts none`, `--setting-sources user`, `--strict-mcp-config` |
 
-The implementer gets **no unrestricted shell** by default. Add only the commands your tasks need,
+The implementer gets **no general shell** by default. Add only the commands your tasks need,
 for example `-ExtraImplementerTools 'Bash(npm test *)', 'Bash(pwsh -File ./build.ps1 *)'`
-(appended to the defaults; `-ImplementerTools` on `Invoke-PipelineCycle` replaces them). A broad `Bash` rule would let a session read files outside the
-repository, such as your credentials.
+(appended to the defaults; `-ImplementerTools` on `Invoke-PipelineCycle` replaces them).
+Every command you allow runs code from the repository, so allow only what you trust.
+
+## Security model
+
+Task files, repository content and therefore model output are treated as untrusted:
+
+- Sessions ignore project settings and MCP servers committed in the worktree
+  (`--setting-sources user`, `--strict-mcp-config`), so a branch cannot add hooks or permissions.
+- Each session's settings deny `Read` and `Edit` of **both** config dirs (where credentials live)
+  and block reads outside the working directories.
+- Only the pipeline pushes, after the checks above. It never force-pushes, never pushes the base
+  branch and never merges.
+- Review text is checked for token-like strings before it is posted.
+
+Residual risk: Claude Code's built-in read-only commands (for example read-only `git` forms) and
+any shell rule you add are outside this tool's control. For stronger isolation, run the pipeline
+under a separate operating-system user or in a container that has only the repository and the two
+config dirs.
 
 ## Exit codes of `run-pipeline.ps1`
 
