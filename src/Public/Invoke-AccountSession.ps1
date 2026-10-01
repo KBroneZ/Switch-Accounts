@@ -50,8 +50,9 @@ function Invoke-AccountSession {
         '--permission-prompts', 'none',
         '--settings', (New-GuardSettings -Account $Account -StatePath $guardState -ClaudePath $ClaudePath -IntervalMinutes $GuardIntervalMinutes)
     )
-    if ($AllowedTools) { $arguments += @('--allowedTools', ($AllowedTools -join ',')) }
-    if ($DisallowedTools) { $arguments += @('--disallowedTools', ($DisallowedTools -join ',')) }
+    # Variadic flags go last, one argument per rule, so rules with spaces stay intact.
+    if ($DisallowedTools) { $arguments += @('--disallowedTools') + $DisallowedTools }
+    if ($AllowedTools) { $arguments += @('--allowedTools') + $AllowedTools }
 
     $run = Invoke-StreamingCommand -FilePath $ClaudePath -ArgumentList $arguments -StdIn $Prompt `
         -Environment @{ CLAUDE_CONFIG_DIR = $Account.ConfigDir } -WorkingDirectory $WorkingDirectory `

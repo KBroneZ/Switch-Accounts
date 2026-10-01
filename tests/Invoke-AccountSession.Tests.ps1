@@ -51,8 +51,8 @@ Describe 'Invoke-AccountSession' {
         $line | Should -Match '--output-format stream-json'
         $line | Should -Match '--permission-mode dontAsk'
         $line | Should -Match '--permission-prompts none'
-        $line | Should -Match '--allowedTools Read,Grep'
-        $line | Should -Match ([regex]::Escape('--disallowedTools Bash(git push *)'))
+        Get-FlagValues -Arguments $call.args -Flag '--allowedTools' | Should -Be @('Read', 'Grep')
+        Get-FlagValues -Arguments $call.args -Flag '--disallowedTools' | Should -Be @('Bash(git push *)')
         $line | Should -Not -Match 'dangerously|bypassPermissions'
     }
 

@@ -85,9 +85,11 @@ review rounds, status) lives in `state.json` in the state folder, not in your ta
 ## How a cycle works
 
 1. **A implements** the next task in `worktrees/implementer`, on branch `auto/NNN-slug`, and commits.
-   A is told not to push, open PRs or switch branches, and `git push` / `gh` are denied to it.
+   A is told not to push, open PRs or switch branches, and deny rules for `git push` and `gh` are
+   added. Shell rules are best effort, so the real guarantee is step 2: only the pipeline pushes.
 2. The pipeline checks A's work: still on the task branch, no uncommitted changes, at least one
-   commit, no more than `MaxChangedFiles` files. Then it pushes the branch and opens the PR.
+   commit, no more than `MaxChangedFiles` files, and no credential file or token-like line in the
+   added code. Then it pushes the branch (never force) and opens the PR.
 3. **B reviews** that PR in `worktrees/reviewer` with read-only tools (`Read`, `Glob`, `Grep`,
    `git diff/log/show`; `Edit` and `Write` denied). Its final message starts with
    `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`; the pipeline posts it as a PR comment.
@@ -135,6 +137,13 @@ if it cannot be parsed, the role still waits but without a known reset time.
 | `MaxChangedFiles` | 40 |
 | Branch prefix | `auto/` |
 | Permission mode | `dontAsk` with `--permission-prompts none` |
+| Implementer tools (`-ImplementerTools`) | `Read`, `Edit`, `Write`, `Glob`, `Grep` and `git add/commit/status/diff/log` |
+| Reviewer tools (`-ReviewerTools`) | `Read`, `Glob`, `Grep` and `git diff/log/show` |
+
+The implementer gets **no unrestricted shell** by default. Add only the commands your tasks need,
+for example `-ImplementerTools` with `'Bash(npm test *)'` or `'Bash(pwsh -File ./build.ps1 *)'`
+appended to the defaults. A broad `Bash` rule would let a session read files outside the
+repository, such as your credentials.
 
 ## Exit codes of `run-pipeline.ps1`
 

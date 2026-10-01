@@ -40,5 +40,31 @@ function Test-ImplementerWork {
     if ($files.Count -gt $MaxChangedFiles) {
         return "pull request would change $($files.Count) files (limit $MaxChangedFiles); nothing was pushed"
     }
+    Find-SecretInChange -Worktree $Worktree -Files $files -BaseBranch $BaseBranch
+}
+
+$script:SecretFilePattern = '(^|/)\.credentials\.json$'
+$script:SecretLinePatterns = @(
+    'sk-ant-[A-Za-z0-9_-]{10,}'
+    '"(accessToken|refreshToken)"\s*:'
+    '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    'gh[pousr]_[A-Za-z0-9]{20,}'
+)
+
+function Find-SecretInChange {
+    # Defence in depth before a push: refuses credential files and lines that look like tokens.
+    # The reason names the file only, never the matched text.
+    param([string] $Worktree, [string[]] $Files, [string] $BaseBranch)
+    $file = $Files | Where-Object { $_ -match $script:SecretFilePattern } | Select-Object -First 1
+    if ($file) { return "possible secret: change adds $file; nothing was pushed" }
+    $diff = Invoke-Git -Path $Worktree -Arguments @('diff', '--unified=0', '--no-color', "origin/$BaseBranch...HEAD")
+    $current = $null
+    foreach ($line in $diff -split '\r?\n') {
+        if ($line -match '^\+\+\+ b/(?<f>.+)$') { $current = $Matches['f']; continue }
+        if (-not $line.StartsWith('+')) { continue }
+        foreach ($pattern in $script:SecretLinePatterns) {
+            if ($line -match $pattern) { return "possible secret in $current; nothing was pushed" }
+        }
+    }
     $null
 }

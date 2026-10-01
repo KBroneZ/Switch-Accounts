@@ -120,9 +120,10 @@ Describe 'Invoke-PipelineCycle' {
 
         Invoke-Cycle $repo $a $b | Out-Null
 
-        $line = (Get-SessionCalls $b)[0].args -join ' '
-        $line | Should -Match '--disallowedTools Edit,Write'
-        $line | Should -Not -Match '--allowedTools [^ ]*Bash,'
+        $reviewArgs = [string[]](Get-SessionCalls $b)[0].args
+        Get-FlagValues -Arguments $reviewArgs -Flag '--disallowedTools' | Should -Contain 'Edit'
+        Get-FlagValues -Arguments $reviewArgs -Flag '--disallowedTools' | Should -Contain 'Write'
+        Get-FlagValues -Arguments $reviewArgs -Flag '--allowedTools' | Should -Not -Contain 'Bash'
         $comment = Get-GhCalls | Where-Object { $_.args[1] -eq 'comment' }
         $comment.args | Should -Contain '1'
         $comment.body | Should -Match 'VERDICT: APPROVED'
@@ -193,6 +194,37 @@ Set-Content -LiteralPath x.txt -Value x; git add -A; git -c user.email=a@example
 
         (Get-TaskState $repo '001').status | Should -Be 'blocked'
         git -C $repo.Origin branch --list 'sneaky' | Should -BeNullOrEmpty
+    }
+
+    It 'gives the implementer no unrestricted shell by default and denies push and gh' {
+        Add-QueueTask $repo '001-first.md'
+
+        Invoke-Cycle $repo $a $b | Out-Null
+
+        $implArgs = [string[]](Get-SessionCalls $a)[0].args
+        Get-FlagValues -Arguments $implArgs -Flag '--allowedTools' | Should -Not -Contain 'Bash'
+        $denied = Get-FlagValues -Arguments $implArgs -Flag '--disallowedTools'
+        $denied | Should -Contain 'Bash(git push)'
+        $denied | Should -Contain 'Bash(git push *)'
+        $denied | Should -Contain 'Bash(gh *)'
+    }
+
+    It 'blocks without pushing when the change adds <Case>' -TestCases @(
+        @{ Case = 'a credentials file'; File = '.credentials.json'; Content = '{"x":1}' }
+        @{ Case = 'an Anthropic-style key'; File = 'config.txt'; Content = 'key=sk-ant-api03-SYNTHETICSYNTHETICSYNTHETIC' }
+        @{ Case = 'an OAuth token field'; File = 'dump.json'; Content = '{"refreshToken":"synthetic-value-0000"}' }
+    ) {
+        Add-QueueTask $repo '001-first.md'
+        Set-Content -LiteralPath (Join-Path $a.ConfigDir 'fake-session-action.ps1') -Value @"
+Set-Content -LiteralPath '$File' -Value '$Content'
+git add -A; git -c user.email=a@example.invalid -c user.name=A commit -q -m leak
+"@
+
+        Invoke-Cycle $repo $a $b | Out-Null
+
+        (Get-TaskState $repo '001').status | Should -Be 'blocked'
+        (Get-TaskState $repo '001').reason | Should -Match 'secret'
+        git -C $repo.Origin branch --list 'auto/001-first' | Should -BeNullOrEmpty
     }
 
     It 'stops for the user when A says it needs a human decision' {

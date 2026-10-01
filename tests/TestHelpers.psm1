@@ -58,4 +58,14 @@ Resets Oct 9, 9am (UTC)
 "@ -replace '37% used', "$Percent% used"
 }
 
+function Get-FlagValues {
+    # Values that follow a variadic flag, up to the next flag.
+    param([string[]] $Arguments, [string] $Flag)
+    $i = [Array]::IndexOf($Arguments, $Flag)
+    if ($i -lt 0) { return @() }
+    @($Arguments[($i + 1)..($Arguments.Count - 1)] | ForEach-Object -Begin { $stop = $false } -Process {
+            if ($stop -or $_.StartsWith('--')) { $stop = $true } else { $_ }
+        })
+}
+
 Export-ModuleMember -Function *

@@ -29,7 +29,8 @@ function Invoke-PipelineCycle {
         [ValidateRange(0, 10)] [int] $MaxReviewRounds = 2,
         [ValidateRange(1, 100)] [int] $MaxTasksPerDay = 2,
         [ValidateRange(1, 10000)] [int] $MaxChangedFiles = 40,
-        [string[]] $ImplementerTools = @('Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'),
+        [string[]] $ImplementerTools = @('Read', 'Edit', 'Write', 'Glob', 'Grep',
+            'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)'),
         [string[]] $ReviewerTools = @('Read', 'Glob', 'Grep', 'Bash(git diff *)', 'Bash(git log *)', 'Bash(git show *)'),
         [string] $ClaudePath = 'claude',
         [string] $GhPath = 'gh',
@@ -52,18 +53,32 @@ function Invoke-PipelineCycle {
     Invoke-Git -Path $RepoPath -Arguments @('fetch', '--quiet', '--prune', 'origin') | Out-Null
     foreach ($job in $jobs) { Initialize-RoleWorktree -Ctx $ctx -Job $job }
 
-    $running = foreach ($job in $jobs) { Start-RoleSession -Ctx $ctx -Job $job }
-    $sessions = @{}
-    foreach ($thread in @($running)) {
-        $session = Receive-Job -Job $thread.Job -Wait -AutoRemoveJob -ErrorAction Stop
-        $sessions[$thread.Role] = $session
-    }
+    $running = @(foreach ($job in $jobs) { Start-RoleSession -Ctx $ctx -Job $job })
+    $sessions = Receive-RoleSessions -Running $running
 
     $result = [ordered]@{ Implementer = $null; Reviewer = $null; Idle = ($jobs.Count -eq 0) }
     if ($implementerJob) { $result.Implementer = Complete-ImplementerJob -Ctx $ctx -State $state -Job $implementerJob -Session $sessions['implementer'] }
     if ($reviewerJob) { $result.Reviewer = Complete-ReviewerJob -Ctx $ctx -State $state -Job $reviewerJob -Session $sessions['reviewer'] }
     if ($state.tasks.Count -gt 0) { Save-PipelineState -StateDir $ctx.StateDir -State $state }
     [pscustomobject]$result
+}
+
+function Receive-RoleSessions {
+    # Waits for every role before reading results, so a failure in one never orphans the other.
+    param([object[]] $Running)
+    if ($Running.Count -gt 0) { Wait-Job -Job $Running.Job | Out-Null }
+    $sessions = @{}
+    foreach ($thread in $Running) {
+        try {
+            $sessions[$thread.Role] = Receive-Job -Job $thread.Job -ErrorAction Stop | Select-Object -Last 1
+        } catch {
+            $sessions[$thread.Role] = New-SessionResult -Account $thread.Role -StartedAt ([DateTimeOffset]::Now) `
+                -Outcome 'Failed' -Reason "session runner error: $($_.Exception.Message)"
+        } finally {
+            Remove-Job -Job $thread.Job -Force
+        }
+    }
+    $sessions
 }
 
 function Get-CyclePlan {
@@ -141,7 +156,7 @@ function Start-RoleSession {
     $params = if ($Job.Role -eq 'implementer') {
         @{ Account = $Ctx.AccountA; WorkingDirectory = $Ctx.WorktreeA; MaxTurns = $Ctx.MaxTurnsA
             Prompt = (New-ImplementerPrompt -Task $Job.Task -Branch $Job.Branch -Findings $Job.Findings)
-            AllowedTools = $Ctx.ImplementerTools; DisallowedTools = @('Bash(git push *)', 'Bash(gh *)') }
+            AllowedTools = $Ctx.ImplementerTools; DisallowedTools = @('Bash(git push)', 'Bash(git push *)', 'Bash(gh *)') }
     } else {
         @{ Account = $Ctx.AccountB; WorkingDirectory = $Ctx.WorktreeB; MaxTurns = $Ctx.MaxTurnsB
             Prompt = (New-ReviewerPrompt -Task $Job.Task -Branch $Job.Branch -BaseBranch $Ctx.BaseBranch -Pr $Job.Pr)
