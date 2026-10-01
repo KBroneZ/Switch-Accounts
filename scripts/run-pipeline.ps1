@@ -29,6 +29,7 @@ param(
     [ValidateRange(1, 500)] [int] $MaxTurnsA = 80,
     [ValidateRange(1, 500)] [int] $MaxTurnsB = 30,
     [ValidateRange(0.01, 1440)] [double] $TimeoutMinutes = 60,
+    [string[]] $ExtraImplementerTools = @(),
     [string] $BaseBranch = 'main',
     [string] $ClaudePath = 'claude',
     [string] $GhPath = 'gh',
@@ -43,6 +44,7 @@ $cycleArgs = @{
     AccountB = [pscustomobject]@{ Name = 'B'; ConfigDir = $AccountBConfigDir; MaxFiveHourPercent = $MaxFiveHourPercentB }
     MaxTasksPerDay = $MaxTasksPerDay; MaxTurnsA = $MaxTurnsA; MaxTurnsB = $MaxTurnsB
     TimeoutMinutes = $TimeoutMinutes; ClaudePath = $ClaudePath; GhPath = $GhPath; DryRun = $DryRun
+    ExtraImplementerTools = $ExtraImplementerTools
 }
 if ($StateDir) { $cycleArgs.StateDir = $StateDir }
 

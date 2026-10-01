@@ -141,8 +141,8 @@ if it cannot be parsed, the role still waits but without a known reset time.
 | Reviewer tools (`-ReviewerTools`) | `Read`, `Glob`, `Grep` and `git diff/log/show` |
 
 The implementer gets **no unrestricted shell** by default. Add only the commands your tasks need,
-for example `-ImplementerTools` with `'Bash(npm test *)'` or `'Bash(pwsh -File ./build.ps1 *)'`
-appended to the defaults. A broad `Bash` rule would let a session read files outside the
+for example `-ExtraImplementerTools 'Bash(npm test *)', 'Bash(pwsh -File ./build.ps1 *)'`
+(appended to the defaults; `-ImplementerTools` on `Invoke-PipelineCycle` replaces them). A broad `Bash` rule would let a session read files outside the
 repository, such as your credentials.
 
 ## Exit codes of `run-pipeline.ps1`

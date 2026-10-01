@@ -330,6 +330,16 @@ Describe 'run-pipeline.ps1' {
         @(Get-SessionCalls $a) | Should -HaveCount 0
     }
 
+    It 'appends -ExtraImplementerTools to the implementer defaults' {
+        Add-QueueTask $repo '001-first.md'
+
+        & $script @common -MaxCycles 1 -ExtraImplementerTools 'Bash(npm test *)' *> $null
+
+        $allowed = Get-FlagValues -Arguments ([string[]](Get-SessionCalls $a)[0].args) -Flag '--allowedTools'
+        $allowed | Should -Contain 'Bash(npm test *)'
+        $allowed | Should -Contain 'Bash(git commit *)'
+    }
+
     It 'applies each account''s own cap' {
         Add-QueueTask $repo '001-first.md'
         New-FakeAccount -Path $b.ConfigDir -UsageText (Get-SampleUsageText -Percent '60') | Out-Null

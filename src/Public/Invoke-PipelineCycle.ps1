@@ -31,6 +31,7 @@ function Invoke-PipelineCycle {
         [ValidateRange(1, 10000)] [int] $MaxChangedFiles = 40,
         [string[]] $ImplementerTools = @('Read', 'Edit', 'Write', 'Glob', 'Grep',
             'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)'),
+        [string[]] $ExtraImplementerTools = @(),
         [string[]] $ReviewerTools = @('Read', 'Glob', 'Grep', 'Bash(git diff *)', 'Bash(git log *)', 'Bash(git show *)'),
         [string] $ClaudePath = 'claude',
         [string] $GhPath = 'gh',
@@ -40,7 +41,7 @@ function Invoke-PipelineCycle {
     $ctx = New-PipelineContext -Bound $PSBoundParameters -Defaults @{
         BaseBranch = $BaseBranch; BranchPrefix = $BranchPrefix; MaxTurnsA = $MaxTurnsA; MaxTurnsB = $MaxTurnsB
         TimeoutMinutes = $TimeoutMinutes; MaxReviewRounds = $MaxReviewRounds; MaxTasksPerDay = $MaxTasksPerDay
-        MaxChangedFiles = $MaxChangedFiles; ImplementerTools = $ImplementerTools; ReviewerTools = $ReviewerTools
+        MaxChangedFiles = $MaxChangedFiles; ImplementerTools = @($ImplementerTools) + $ExtraImplementerTools; ReviewerTools = $ReviewerTools
         ClaudePath = $ClaudePath; GhPath = $GhPath
     }
     $state = Read-PipelineState -StateDir $ctx.StateDir
