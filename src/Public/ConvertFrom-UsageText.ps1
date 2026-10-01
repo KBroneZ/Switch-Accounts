@@ -3,9 +3,10 @@ function ConvertFrom-UsageText {
     .SYNOPSIS
         Extracts the 5-hour ("Current session") usage from the text that `claude -p /usage` prints.
     .DESCRIPTION
-        The /usage screen is plain text, not a documented contract, so the parser is strict:
-        anything it does not recognise, stale ("last-known") bars and rate-limited answers all
-        return Status = Unknown. A missing reset time keeps the percentage (ResetsAt = $null).
+        The /usage text is not a documented contract, so the parser is strict: it needs exactly
+        one "Current session: NN% used [· resets <when>]" line (the layout of CLI 2.1.284).
+        Anything else, stale ("last-known") data and rate-limited answers all return
+        Status = Unknown. A missing reset time keeps the percentage (ResetsAt = $null).
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -18,26 +19,16 @@ function ConvertFrom-UsageText {
     if ($Text -match '(?i)last-known') { return New-UsageResult -Reason '/usage shows last-known (stale) data' }
     if ($Text -match '(?i)rate.limited') { return New-UsageResult -Reason 'usage endpoint is rate limited' }
 
-    $lines = $Text -split '\r?\n'
-    $starts = @(for ($i = 0; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match '^\s*Current session\s*$') { $i }
-        })
-    if ($starts.Count -eq 0) { return New-UsageResult -Reason 'no "Current session" block in /usage output' }
-    if ($starts.Count -gt 1) { return New-UsageResult -Reason 'more than one "Current session" block in /usage output' }
+    $sessionLines = @($Text -split '\r?\n' | Where-Object { $_ -match '^\s*Current session\b' })
+    if ($sessionLines.Count -eq 0) { return New-UsageResult -Reason 'no "Current session" line in /usage output' }
+    if ($sessionLines.Count -gt 1) { return New-UsageResult -Reason 'more than one "Current session" line in /usage output' }
 
-    $percent = $null
-    $resetText = $null
-    $end = [Math]::Min($lines.Count - 1, $starts[0] + 4)
-    for ($i = $starts[0] + 1; $i -le $end; $i++) {
-        if ($lines[$i] -match '^\s*$') { break }
-        if ($null -eq $percent -and $lines[$i] -match '(?<p>\d{1,3}(?:\.\d+)?)\s*%\s*used') {
-            $percent = [double]::Parse($Matches.p, [cultureinfo]::InvariantCulture)
-        }
-        if ($null -eq $resetText -and $lines[$i] -match '^\s*Resets\s+(?<r>.+?)\s*$') {
-            $resetText = $Matches.r
-        }
+    $linePattern = '^\s*Current session:\s*(?<p>\d{1,3}(?:\.\d+)?)\s*%\s*used(?:\s*\u00B7\s*resets\s+(?<r>.+?))?\s*$'
+    if ($sessionLines[0] -notmatch $linePattern) {
+        return New-UsageResult -Reason 'no "% used" on the "Current session" line'
     }
-    if ($null -eq $percent) { return New-UsageResult -Reason 'no "% used" in the "Current session" block' }
+    $percent = [double]::Parse($Matches.p, [cultureinfo]::InvariantCulture)
+    $resetText = $Matches['r']
     if ($percent -gt 100) { return New-UsageResult -Reason "5-hour percentage out of range ($percent)" }
 
     [pscustomobject]@{
@@ -80,7 +71,9 @@ function ConvertFrom-ResetText {
         $month = 1 + [Array]::FindIndex($months, [Predicate[string]] { param($n) $n -and $n -ieq $parts['mon'] })
         if ($month -lt 1) { return $null }
         try { $candidate = [datetime]::new($local.Year, $month, [int]$parts['day'], $hour, $minute, 0) } catch { return $null }
-        if ($candidate -le $local) { $candidate = $candidate.AddYears(1) }
+        # Only a date well in the past means "next year" (Dec -> Jan). /usage prints minutes only,
+        # so a reset can look up to a minute old; keep it, and the caller simply reads usage again.
+        if ($candidate -lt $local.AddDays(-30)) { $candidate = $candidate.AddYears(1) }
     } else {
         $candidate = [datetime]::new($local.Year, $local.Month, $local.Day, $hour, $minute, 0)
         if ($candidate -le $local) { $candidate = $candidate.AddDays(1) }

@@ -5,7 +5,7 @@ while **account B reviews** the pull request of the previous task. Each account 
 git worktree and branch, and each one stops at a cap you set on its **5-hour usage window**.
 
 > **Unofficial.** Switch-Accounts is an independent PowerShell tool that works with the Claude Code
-> CLI. It is not made, endorsed or supported by Anthropic.
+> CLI. It is not affiliated with Anthropic, and it is not made, endorsed or supported by Anthropic.
 
 ## Read this first: terms of use
 
@@ -120,13 +120,16 @@ remove its entry in `state.json`.
 
 `/usage` reports the plan usage that the service returns, so the percentage is the real one, not
 an estimate. Its text is not a documented, stable format, so the parser is strict: if the output
-does not contain exactly one `Current session` block with an `NN% used` line, if it says the data
-is **last-known** (it can be up to 60 minutes old) or that the usage endpoint is rate limited,
-the result is `Unknown` and the account does not start. The reset time is read when it is shown;
-if it cannot be parsed, the role still waits but without a known reset time.
+does not contain exactly one line like `Current session: 23% used · resets Oct 2, 6:59am (Europe/Madrid)`,
+if it says the data is **last-known** (it can be up to 60 minutes old) or that the usage endpoint
+is rate limited, the result is `Unknown` and the account does not start. The reset time is read
+when it is shown; if it cannot be parsed, the role still waits but without a known reset time.
 
-> The parser was written against the documented behaviour and synthetic samples. If a future CLI
-> version changes the `/usage` text, you will see `Unknown` (safe), not a wrong number.
+Checked with Claude Code CLI 2.1.284 on two Pro accounts: the percentage matched the usage shown
+by the Claude desktop app for the same account at the same moment. The reset time is printed to
+the minute (seconds are cut off), so `ResetsAt` can be up to one minute early; a role that wakes
+up then simply reads usage again. If a future CLI version changes the `/usage` text, you will see
+`Unknown` (safe), not a wrong number.
 
 ## Limits and defaults
 
