@@ -24,8 +24,8 @@ git worktree and branch, and each one stops at a cap you set on its **5-hour usa
 
 | Piece | What it does |
 |-------|--------------|
-| `Get-AccountUsage` | Reads one account's 5-hour usage by running `claude -p /usage` with that account's config dir. `/usage` is a local command: it does not make a model request. |
-| `Test-UsageCap` | Allows a session only if usage is known **and** below your cap. Unknown usage blocks (unknown is never treated as 0). |
+| `Get-AccountUsage` | Reads one account's 5-hour and weekly usage by running `claude -p /usage` with that account's config dir. `/usage` is a local command: it does not make a model request. |
+| `Test-UsageCap` | Allows a session only if usage is known **and** below your cap. Unknown usage blocks (unknown is never treated as 0). An optional `-MaxWeeklyPercent` adds a cap on the weekly (all models) usage. |
 | `Initialize-SecondaryAccount` / `Test-SecondaryAccount` | Shares `rules`, `skills` and `agents` from your main config dir with the second one through directory links, and writes a `CLAUDE.md` that imports the main one. Credentials, account state, settings, projects and sessions are never read, copied or linked. |
 | `Get-QueueTask` | Reads the task queue (one Markdown file per task). |
 | `Invoke-AccountSession` | Runs one `claude -p` session for one account, inside its cap, with turn and time limits. |
@@ -110,6 +110,10 @@ remove its entry in `state.json`.
 - **During a session**, a `PreToolUse` hook (`scripts/usage-guard.ps1`, passed with `--settings`
   for that session only; your settings files are not edited) re-reads usage at most every
   5 minutes and returns `{"continue": false}` when the cap is reached or usage is unknown.
+  When you run the hook yourself (for example from your own settings), pass `-MaxWeeklyPercent`
+  to stop at a weekly cap too; the pipeline does not set a weekly cap yet. It reads usage again after each interval
+  even when it has stopped, so a session that is resumed after the window resets can go on;
+  sessions of the same account can share one state file.
 - A `rate_limit_event` with status `rejected`, or an API retry caused by a rate limit, kills the
   session at once.
 - **Overshoot:** usage is only re-read between tool calls and at most every 5 minutes, so a session
@@ -124,6 +128,12 @@ does not contain exactly one line like `Current session: 23% used · resets Oct 
 if it says the data is **last-known** (it can be up to 60 minutes old) or that the usage endpoint
 is rate limited, the result is `Unknown` and the account does not start. The reset time is read
 when it is shown; if it cannot be parsed, the role still waits but without a known reset time.
+
+The weekly usage (`WeeklyPercent`, `WeeklyResetsAt`) comes from the `Current week (all models)`
+line. If that line is missing or cannot be read, the weekly usage is unknown (`$null`) and the
+5-hour result does not change; only a caller that sets `-MaxWeeklyPercent` is blocked by it.
+An account with no use in the current 5-hour window was read as 0% with no reset time; right after
+its first message the reset time took a few minutes to appear (CLI 2.1.284).
 
 Checked with Claude Code CLI 2.1.284 on two Pro accounts: the percentage matched the usage shown
 by the Claude desktop app for the same account at the same moment. The reset time is printed to

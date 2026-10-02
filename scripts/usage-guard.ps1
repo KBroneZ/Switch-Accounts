@@ -1,19 +1,26 @@
 <#
 .SYNOPSIS
-    PreToolUse hook: stops the Claude Code session when the account reaches its 5-hour cap.
+    PreToolUse hook: stops the Claude Code session when the account reaches its 5-hour cap
+    (and, optionally, its weekly cap).
 .DESCRIPTION
     Installed per session by Invoke-AccountSession through --settings; it never edits the
     user's settings files. It re-reads usage at most every IntervalMinutes (state in
-    StatePath). When the cap is reached, or usage cannot be read, it prints
+    StatePath), whatever the last decision was, so a session that was stopped can go on
+    once the window resets. When a cap is reached, or usage cannot be read, it prints
     {"continue": false, "stopReason": ...}, which stops the session before the next model call.
     Overshoot is bounded by what the session spends in one interval plus the current turn.
+
+    Several sessions of the same account may share one StatePath: the state file is
+    replaced atomically and a busy file is retried.
 #>
 param(
     [Parameter(Mandatory)] [string] $ConfigDir,
     [Parameter(Mandatory)] [double] $MaxFiveHourPercent,
     [Parameter(Mandatory)] [string] $StatePath,
     [string] $ClaudePath = 'claude',
-    [double] $IntervalMinutes = 5
+    [double] $IntervalMinutes = 5,
+    # 0 = no weekly cap.
+    [double] $MaxWeeklyPercent = 0
 )
 $ErrorActionPreference = 'Stop'
 
@@ -27,23 +34,49 @@ function ConvertTo-Offset($Value) {
     [DateTimeOffset]::Parse([string]$Value, [cultureinfo]::InvariantCulture)
 }
 
+function Invoke-WithRetry([scriptblock] $Action) {
+    # Another session of the same account may be replacing the file right now.
+    for ($i = 1; ; $i++) {
+        try { return & $Action }
+        # Windows reports a file that another process has open as access denied, too.
+        catch [System.IO.IOException], [System.UnauthorizedAccessException] { if ($i -ge 5) { throw }; Start-Sleep -Milliseconds (50 * $i) }
+    }
+}
+
+function Read-GuardState {
+    if (-not (Test-Path -LiteralPath $StatePath)) { return $null }
+    # A corrupt state throws: the caller fails closed.
+    Invoke-WithRetry { [IO.File]::ReadAllText($StatePath) } | ConvertFrom-Json
+}
+
+function Save-GuardState($Decision) {
+    $json = @{ Decision = $Decision.Decision; Reason = $Decision.Reason; LastCheck = [DateTimeOffset]::Now.ToString('o') } |
+        ConvertTo-Json
+    $temp = "$StatePath.$PID.tmp"
+    try {
+        [IO.File]::WriteAllText($temp, $json)
+        Invoke-WithRetry { [IO.File]::Move($temp, $StatePath, $true) }
+    } finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 try {
     [void][Console]::In.ReadToEnd()  # hook input is not needed
-    $state = if (Test-Path -LiteralPath $StatePath) { Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json } else { $null }
-    if ($state -and $state.Decision -eq 'Allow' -and
-        ([DateTimeOffset]::Now - (ConvertTo-Offset $state.LastCheck)).TotalMinutes -lt $IntervalMinutes) {
-        exit 0
-    }
-    if ($state -and $state.Decision -ne 'Allow') {
-        Write-Stop $state.Reason
+    $state = Read-GuardState
+    $age = if ($state) { ([DateTimeOffset]::Now - (ConvertTo-Offset $state.LastCheck)).TotalMinutes } else { -1 }
+    # A LastCheck in the future (clock change) counts as expired: never keep a cached Allow longer.
+    if ($state -and $age -ge 0 -and $age -lt $IntervalMinutes) {
+        if ($state.Decision -ne 'Allow') { Write-Stop $state.Reason }
         exit 0
     }
 
     Import-Module (Join-Path $PSScriptRoot '..' 'src' 'SwitchAccounts.psd1') -Force
     $usage = Get-AccountUsage -ConfigDir $ConfigDir -ClaudePath $ClaudePath
-    $cap = Test-UsageCap -Usage $usage -MaxFiveHourPercent $MaxFiveHourPercent
-    @{ Decision = $cap.Decision; Reason = $cap.Reason; LastCheck = [DateTimeOffset]::Now.ToString('o') } |
-        ConvertTo-Json | Set-Content -LiteralPath $StatePath
+    $capArgs = @{ Usage = $usage; MaxFiveHourPercent = $MaxFiveHourPercent }
+    if ($MaxWeeklyPercent -gt 0) { $capArgs.MaxWeeklyPercent = $MaxWeeklyPercent }
+    $cap = Test-UsageCap @capArgs
+    Save-GuardState $cap
     if ($cap.Decision -ne 'Allow') { Write-Stop $cap.Reason }
     exit 0
 } catch {

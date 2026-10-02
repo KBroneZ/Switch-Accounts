@@ -1,12 +1,17 @@
 function ConvertFrom-UsageText {
     <#
     .SYNOPSIS
-        Extracts the 5-hour ("Current session") usage from the text that `claude -p /usage` prints.
+        Extracts the 5-hour ("Current session") and weekly usage from the text that
+        `claude -p /usage` prints.
     .DESCRIPTION
         The /usage text is not a documented contract, so the parser is strict: it needs exactly
         one "Current session: NN% used [· resets <when>]" line (the layout of CLI 2.1.284).
         Anything else, stale ("last-known") data and rate-limited answers all return
         Status = Unknown. A missing reset time keeps the percentage (ResetsAt = $null).
+
+        The weekly usage comes from exactly one "Current week (all models): NN% used" line.
+        When that line is missing or cannot be read, WeeklyPercent and WeeklyResetsAt are
+        $null (unknown) and the 5-hour result does not change.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -19,23 +24,42 @@ function ConvertFrom-UsageText {
     if ($Text -match '(?i)last-known') { return New-UsageResult -Reason '/usage shows last-known (stale) data' }
     if ($Text -match '(?i)rate.limited') { return New-UsageResult -Reason 'usage endpoint is rate limited' }
 
-    $sessionLines = @($Text -split '\r?\n' | Where-Object { $_ -match '^\s*Current session\b' })
+    $lines = $Text -split '\r?\n'
+    $sessionLines = @($lines | Where-Object { $_ -match '^\s*Current session\b' })
     if ($sessionLines.Count -eq 0) { return New-UsageResult -Reason 'no "Current session" line in /usage output' }
     if ($sessionLines.Count -gt 1) { return New-UsageResult -Reason 'more than one "Current session" line in /usage output' }
 
-    $linePattern = '^\s*Current session:\s*(?<p>\d{1,3}(?:\.\d+)?)\s*%\s*used(?:\s*\u00B7\s*resets\s+(?<r>.+?))?\s*$'
-    if ($sessionLines[0] -notmatch $linePattern) {
-        return New-UsageResult -Reason 'no "% used" on the "Current session" line'
+    $session = Read-LimitLine -Line $sessionLines[0] -Label 'Current session' -Now $Now
+    if (-not $session) { return New-UsageResult -Reason 'no "% used" on the "Current session" line' }
+    if ($session.Percent -gt 100) { return New-UsageResult -Reason "5-hour percentage out of range ($($session.Percent))" }
+
+    # The weekly limit is optional: unknown here never changes the 5-hour result.
+    $weekly = $null
+    $weekLines = @($lines | Where-Object { $_ -match '^\s*Current week \(all models\)' })
+    if ($weekLines.Count -eq 1) {
+        $weekly = Read-LimitLine -Line $weekLines[0] -Label 'Current week \(all models\)' -Now $Now
+        if ($weekly -and $weekly.Percent -gt 100) { $weekly = $null }
     }
-    $percent = [double]::Parse($Matches.p, [cultureinfo]::InvariantCulture)
-    $resetText = $Matches['r']
-    if ($percent -gt 100) { return New-UsageResult -Reason "5-hour percentage out of range ($percent)" }
 
     [pscustomobject]@{
         Status          = 'Known'
-        FiveHourPercent = $percent
-        ResetsAt        = if ($resetText) { ConvertFrom-ResetText -Text $resetText -Now $Now } else { $null }
+        FiveHourPercent = $session.Percent
+        ResetsAt        = $session.ResetsAt
+        WeeklyPercent   = ${weekly}?.Percent
+        WeeklyResetsAt  = ${weekly}?.ResetsAt
         Reason          = $null
+    }
+}
+
+function Read-LimitLine {
+    # "<Label>: NN% used [\u00B7 resets <when>]" -> Percent and ResetsAt; $null when it does not match.
+    param([string] $Line, [string] $Label, [DateTimeOffset] $Now)
+    $pattern = '^\s*' + $Label + ':\s*(?<p>\d{1,3}(?:\.\d+)?)\s*%\s*used(?:\s*\u00B7\s*resets\s+(?<r>.+?))?\s*$'
+    if ($Line -notmatch $pattern) { return $null }
+    $resetText = $Matches['r']
+    [pscustomobject]@{
+        Percent  = [double]::Parse($Matches.p, [cultureinfo]::InvariantCulture)
+        ResetsAt = if ($resetText) { ConvertFrom-ResetText -Text $resetText -Now $Now } else { $null }
     }
 }
 
@@ -45,6 +69,8 @@ function New-UsageResult {
         Status          = 'Unknown'
         FiveHourPercent = $null
         ResetsAt        = $null
+        WeeklyPercent   = $null
+        WeeklyResetsAt  = $null
         Reason          = $Reason
     }
 }
