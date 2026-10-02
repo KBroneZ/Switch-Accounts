@@ -18,9 +18,52 @@ Describe 'ConvertFrom-UsageText' {
         $usage.ResetsAt | Should -Be ([DateTimeOffset]::new(2030, 1, 1, 16, 30, 0, [TimeSpan]::Zero))
     }
 
-    It 'ignores the weekly limit and the usage breakdown' {
+    It 'ignores the usage breakdown' {
         (ConvertFrom-UsageText -Text (Get-SampleUsageText -Percent '5') -Now $now).FiveHourPercent |
             Should -Be 5
+    }
+
+    It 'reads the weekly (all models) percentage and its reset time' {
+        $usage = ConvertFrom-UsageText -Text (Get-SampleUsageText -Weekly '64' -WeeklyResets 'Jan 6, 7:59pm (UTC)') -Now $now
+
+        $usage.WeeklyPercent | Should -Be 64
+        $usage.WeeklyResetsAt | Should -Be ([DateTimeOffset]::new(2030, 1, 6, 19, 59, 0, [TimeSpan]::Zero))
+    }
+
+    It 'leaves the weekly usage unknown but keeps the 5-hour result when the weekly line is missing' {
+        $dot = [char]0x00B7
+        $usage = ConvertFrom-UsageText -Text "Current session: 12% used $dot resets 4:30pm (UTC)" -Now $now
+
+        $usage.Status | Should -Be 'Known'
+        $usage.FiveHourPercent | Should -Be 12
+        $usage.ResetsAt | Should -Be ([DateTimeOffset]::new(2030, 1, 1, 16, 30, 0, [TimeSpan]::Zero))
+        $usage.WeeklyPercent | Should -BeNullOrEmpty
+        $usage.WeeklyResetsAt | Should -BeNullOrEmpty
+    }
+
+    It 'leaves the weekly usage unknown when <Case>' -TestCases @(
+        @{ Case = 'the weekly line has no percentage'; Weekly = 'Current week (all models): loading...' }
+        @{ Case = 'the weekly percentage is out of range'; Weekly = 'Current week (all models): 140% used' }
+        @{ Case = 'there are two weekly lines'; Weekly = "Current week (all models): 10% used`nCurrent week (all models): 20% used" }
+    ) {
+        $usage = ConvertFrom-UsageText -Text ("Current session: 12% used`n" + $Weekly) -Now $now
+
+        $usage.Status | Should -Be 'Known'
+        $usage.FiveHourPercent | Should -Be 12
+        $usage.WeeklyPercent | Should -BeNullOrEmpty
+    }
+
+    It 'only reads the all-models weekly line, not a per-model one' {
+        $text = "Current session: 12% used`nCurrent week (Sonnet only): 90% used`nCurrent week (all models): 30% used"
+
+        (ConvertFrom-UsageText -Text $text -Now $now).WeeklyPercent | Should -Be 30
+    }
+
+    It 'keeps the weekly percentage without a reset time' {
+        $usage = ConvertFrom-UsageText -Text "Current session: 12% used`nCurrent week (all models): 30% used" -Now $now
+
+        $usage.WeeklyPercent | Should -Be 30
+        $usage.WeeklyResetsAt | Should -BeNullOrEmpty
     }
 
     It 'reads a reset time given in an IANA zone' {
@@ -83,6 +126,7 @@ Describe 'ConvertFrom-UsageText' {
 
         $usage.Status | Should -Be 'Unknown'
         $usage.FiveHourPercent | Should -BeNullOrEmpty
+        $usage.WeeklyPercent | Should -BeNullOrEmpty
         $usage.Reason | Should -Not -BeNullOrEmpty
     }
 }

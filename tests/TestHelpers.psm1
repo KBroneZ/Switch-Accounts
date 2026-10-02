@@ -42,13 +42,16 @@ function Get-FakeCalls {
 # Synthetic `claude -p /usage` text. The layout mirrors what CLI 2.1.284 prints
 # (one line per limit, "NN% used · resets <when>"); the numbers, times and zone are invented.
 function Get-SampleUsageText {
-    param([string] $Percent = '37', [string] $Resets = 'Jan 1, 4:30pm (UTC)')
+    param(
+        [string] $Percent = '37', [string] $Resets = 'Jan 1, 4:30pm (UTC)',
+        [string] $Weekly = '81', [string] $WeeklyResets = 'Jan 9, 9am (UTC)'
+    )
     $dot = [char]0x00B7
     @"
 You are currently using your subscription to power your Claude Code usage
 
 Current session: $Percent% used $dot resets $Resets
-Current week (all models): 81% used $dot resets Jan 9, 9am (UTC)
+Current week (all models): $Weekly% used $dot resets $WeeklyResets
 
 What's contributing to your limits usage?
 Approximate, based on local sessions on this machine.
