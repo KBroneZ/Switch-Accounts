@@ -38,7 +38,8 @@ function Invoke-WithRetry([scriptblock] $Action) {
     # Another session of the same account may be replacing the file right now.
     for ($i = 1; ; $i++) {
         try { return & $Action }
-        catch [System.IO.IOException] { if ($i -ge 5) { throw }; Start-Sleep -Milliseconds (50 * $i) }
+        # Windows reports a file that another process has open as access denied, too.
+        catch [System.IO.IOException], [System.UnauthorizedAccessException] { if ($i -ge 5) { throw }; Start-Sleep -Milliseconds (50 * $i) }
     }
 }
 
@@ -63,7 +64,9 @@ function Save-GuardState($Decision) {
 try {
     [void][Console]::In.ReadToEnd()  # hook input is not needed
     $state = Read-GuardState
-    if ($state -and ([DateTimeOffset]::Now - (ConvertTo-Offset $state.LastCheck)).TotalMinutes -lt $IntervalMinutes) {
+    $age = if ($state) { ([DateTimeOffset]::Now - (ConvertTo-Offset $state.LastCheck)).TotalMinutes } else { -1 }
+    # A LastCheck in the future (clock change) counts as expired: never keep a cached Allow longer.
+    if ($state -and $age -ge 0 -and $age -lt $IntervalMinutes) {
         if ($state.Decision -ne 'Allow') { Write-Stop $state.Reason }
         exit 0
     }

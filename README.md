@@ -110,7 +110,8 @@ remove its entry in `state.json`.
 - **During a session**, a `PreToolUse` hook (`scripts/usage-guard.ps1`, passed with `--settings`
   for that session only; your settings files are not edited) re-reads usage at most every
   5 minutes and returns `{"continue": false}` when the cap is reached or usage is unknown.
-  Pass `-MaxWeeklyPercent` to stop at a weekly cap too. It reads usage again after each interval
+  When you run the hook yourself (for example from your own settings), pass `-MaxWeeklyPercent`
+  to stop at a weekly cap too; the pipeline does not set a weekly cap yet. It reads usage again after each interval
   even when it has stopped, so a session that is resumed after the window resets can go on;
   sessions of the same account can share one state file.
 - A `rate_limit_event` with status `rejected`, or an API retry caused by a rate limit, kills the

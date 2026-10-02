@@ -79,6 +79,14 @@ Describe 'usage-guard.ps1' {
         (Get-Content -LiteralPath $state -Raw | ConvertFrom-Json).Decision | Should -Be 'Allow'
     }
 
+    It 'reads usage again when the last check is dated in the future' {
+        $dir = New-FakeAccount -Path (Join-Path $TestDrive "g-$([guid]::NewGuid())") -UsageText (Get-SampleUsageText -Percent '99')
+        Set-GuardState -Path $state -Decision 'Allow' -LastCheck ([DateTimeOffset]::Now.AddHours(2))
+
+        (Invoke-Guard -ConfigDir $dir -StatePath $state | ConvertFrom-Json).continue | Should -BeFalse
+        @(Get-FakeCalls -ConfigDir $dir) | Should -HaveCount 1
+    }
+
     It 'stops the session when the weekly usage reaches its optional cap' {
         $dir = New-FakeAccount -Path (Join-Path $TestDrive "g-$([guid]::NewGuid())") `
             -UsageText (Get-SampleUsageText -Percent '10' -Weekly '92')
