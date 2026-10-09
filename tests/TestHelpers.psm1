@@ -61,6 +61,20 @@ Last 24h $dot 120 requests $dot 4 sessions
 "@
 }
 
+# Synthetic `/usage` text of an account with no use in the 5-hour window (CLI 2.1.295 prints no limit line).
+function Get-IdleUsageText {
+    $dot = [char]0x00B7
+    @"
+You are currently using your subscription to power your Claude Code usage
+
+What's contributing to your limits usage?
+Approximate, based on local sessions on this machine. Behaviors are independent characteristics, not a breakdown.
+
+Last 7d $dot 12 requests $dot 1 sessions
+  80% of your usage was at >150k context
+"@
+}
+
 function Get-FlagValues {
     # Values that follow a variadic flag, up to the next flag.
     param([string[]] $Arguments, [string] $Flag)
@@ -94,6 +108,7 @@ function New-SwitchTestAccount {
         [string] $Percent = '20',
         [string] $Weekly = '10',
         [switch] $UnknownUsage,
+        [switch] $IdleUsage,
         [bool] $Onboarded = $true,
         [string[]] $Trusted = @(),
         [bool] $RemoteControl = $true,
@@ -101,6 +116,7 @@ function New-SwitchTestAccount {
     )
     $dir = Join-Path $Root "config-$Name"
     if ($UnknownUsage) { New-FakeAccount -Path $dir -UsageText 'No limits to show.' | Out-Null }
+    elseif ($IdleUsage) { New-FakeAccount -Path $dir -UsageText (Get-IdleUsageText) | Out-Null }
     else {
         # Reset times in the future of the real clock, because the account reader uses it.
         $invariant = [cultureinfo]::InvariantCulture

@@ -61,6 +61,26 @@ Describe 'Get-ClaudeAccountStatus' {
         (Get-ClaudeAccountStatus -ConfigPath $config -Directory $project -ClaudePath $fake).Available | Should -BeFalse
     }
 
+    It 'lists an account with no use in the window as 0% and available' {
+        $a = New-SwitchTestAccount -Root $root -Name A -IdleUsage -Trusted @($project)
+        $config = Write-SwitchTestConfig -Path (Join-Path $root 'accounts.json') -Accounts @($a)
+
+        $status = Get-ClaudeAccountStatus -ConfigPath $config -Directory $project -ClaudePath $fake
+
+        $status.UsageStatus | Should -Be 'Known'
+        $status.FiveHourPercent | Should -Be 0
+        $status.ResetsAt | Should -BeNullOrEmpty
+        $status.Available | Should -BeTrue
+        $status.Line | Should -BeLike 'A: 0% of 5 h (cap 80%, resets unknown), weekly unknown*'
+    }
+
+    It 'still blocks that account when a weekly cap is set, because the weekly usage is unknown' {
+        $a = New-SwitchTestAccount -Root $root -Name A -IdleUsage -Trusted @($project) -Extra @{ maxWeeklyPercent = 90 }
+        $config = Write-SwitchTestConfig -Path (Join-Path $root 'accounts.json') -Accounts @($a)
+
+        (Get-ClaudeAccountStatus -ConfigPath $config -Directory $project -ClaudePath $fake).Available | Should -BeFalse
+    }
+
     It 'discards an account whose usage is unknown instead of reading it as 0%' {
         $a = New-SwitchTestAccount -Root $root -Name A -UnknownUsage -Trusted @($project)
         $config = Write-SwitchTestConfig -Path (Join-Path $root 'accounts.json') -Accounts @($a)

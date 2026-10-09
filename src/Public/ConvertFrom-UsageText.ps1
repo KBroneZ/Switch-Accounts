@@ -9,6 +9,10 @@ function ConvertFrom-UsageText {
         Anything else, stale ("last-known") data and rate-limited answers all return
         Status = Unknown. A missing reset time keeps the percentage (ResetsAt = $null).
 
+        One exception: CLI 2.1.295 prints no limit line at all for an account with no use in the
+        window. That exact layout (subscription header and breakdown present, no "Current ..."
+        line, no word that signals an error) reads as 0% with no reset time and no weekly value.
+
         The weekly usage comes from exactly one "Current week (all models): NN% used" line.
         When that line is missing or cannot be read, WeeklyPercent and WeeklyResetsAt are
         $null (unknown) and the 5-hour result does not change.
@@ -26,7 +30,15 @@ function ConvertFrom-UsageText {
 
     $lines = $Text -split '\r?\n'
     $sessionLines = @($lines | Where-Object { $_ -match '^\s*Current session\b' })
-    if ($sessionLines.Count -eq 0) { return New-UsageResult -Reason 'no "Current session" line in /usage output' }
+    if ($sessionLines.Count -eq 0) {
+        if (Test-IdleUsageText -Text $Text) {
+            # CLI 2.1.295 leaves the limit lines out when nothing was used in the window.
+            return [pscustomobject]@{
+                Status = 'Known'; FiveHourPercent = 0; ResetsAt = $null; WeeklyPercent = $null; WeeklyResetsAt = $null; Reason = $null
+            }
+        }
+        return New-UsageResult -Reason 'no "Current session" line in /usage output'
+    }
     if ($sessionLines.Count -gt 1) { return New-UsageResult -Reason 'more than one "Current session" line in /usage output' }
 
     $session = Read-LimitLine -Line $sessionLines[0] -Label 'Current session' -Now $Now
@@ -61,6 +73,21 @@ function Read-LimitLine {
         Percent  = [double]::Parse($Matches.p, [cultureinfo]::InvariantCulture)
         ResetsAt = if ($resetText) { ConvertFrom-ResetText -Text $resetText -Now $Now } else { $null }
     }
+}
+
+function Test-IdleUsageText {
+    <#
+      True only for the layout of an account with no use in the window: the subscription header
+      and the usage breakdown are there, no limit line of any kind is, and nothing says that an
+      error happened. Any other text without a "Current session" line stays unknown.
+    #>
+    param([string] $Text)
+    $lines = $Text -split '\r?\n'
+    $hasHeader = @($lines | Where-Object { $_ -match '^\s*You are currently using your subscription' }).Count -eq 1
+    $hasBreakdown = @($lines | Where-Object { $_ -match "^\s*What's contributing to your limits usage\?" }).Count -eq 1
+    $hasLimitLine = @($lines | Where-Object { $_ -match '^\s*Current (session|week)\b' }).Count -gt 0
+    $mentionsError = $Text -match '(?i)\b(error|unavailable|failed|unable|log ?in|sign ?in|expired|unauthori[sz]ed|retry)\b'
+    $hasHeader -and $hasBreakdown -and -not $hasLimitLine -and -not $mentionsError
 }
 
 function New-UsageResult {
