@@ -8,6 +8,8 @@
 #   fake-sleep.txt            seconds to sleep before answering
 # Every call is appended to fake-calls.jsonl with its arguments, working dir and prompt.
 $ErrorActionPreference = 'Stop'
+# The callers read stdout as UTF-8; without this a non-UTF-8 console code page garbles the middle dot of /usage.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $configDir = $env:CLAUDE_CONFIG_DIR
 if (-not $configDir) {
     [Console]::Error.WriteLine('fake-claude: CLAUDE_CONFIG_DIR not set')

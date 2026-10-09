@@ -71,4 +71,54 @@ function Get-FlagValues {
         })
 }
 
+function New-ClaudeJson {
+    <# The slice of an account's .claude.json that readiness checks read (synthetic values). #>
+    param(
+        [Parameter(Mandatory)] [string] $ConfigDir,
+        [bool] $Onboarded = $true,
+        [string[]] $Trusted = @(),
+        [string[]] $Untrusted = @()
+    )
+    $projects = [ordered]@{}
+    foreach ($t in $Trusted) { $projects[$t] = [ordered]@{ hasTrustDialogAccepted = $true } }
+    foreach ($u in $Untrusted) { $projects[$u] = [ordered]@{ hasTrustDialogAccepted = $false } }
+    $doc = [ordered]@{ hasCompletedOnboarding = $Onboarded; userID = 'synthetic-user'; projects = $projects }
+    Set-Content -LiteralPath (Join-Path $ConfigDir '.claude.json') -Value ($doc | ConvertTo-Json -Depth 5)
+}
+
+function New-SwitchTestAccount {
+    <# A fake account: config dir, fake /usage answer and a .claude.json. Returns the config entry. #>
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [string] $Name,
+        [string] $Percent = '20',
+        [string] $Weekly = '10',
+        [switch] $UnknownUsage,
+        [bool] $Onboarded = $true,
+        [string[]] $Trusted = @(),
+        [bool] $RemoteControl = $true,
+        [hashtable] $Extra = @{}
+    )
+    $dir = Join-Path $Root "config-$Name"
+    if ($UnknownUsage) { New-FakeAccount -Path $dir -UsageText 'No limits to show.' | Out-Null }
+    else {
+        # Reset times in the future of the real clock, because the account reader uses it.
+        $invariant = [cultureinfo]::InvariantCulture
+        $resets = ([DateTimeOffset]::UtcNow.AddHours(3).ToString('h:mmtt', $invariant)).ToLowerInvariant() + ' (UTC)'
+        $weeklyResets = ([DateTimeOffset]::UtcNow.AddDays(3).ToString('MMM d, htt', $invariant)).ToLowerInvariant().Replace('jan', 'Jan') + ' (UTC)'
+        $text = Get-SampleUsageText -Percent $Percent -Weekly $Weekly -Resets $resets -WeeklyResets $weeklyResets
+        New-FakeAccount -Path $dir -UsageText $text | Out-Null
+    }
+    New-ClaudeJson -ConfigDir $dir -Onboarded $Onboarded -Trusted $Trusted
+    $entry = [ordered]@{ name = $Name; configDir = $dir; remoteControl = $RemoteControl; maxFiveHourPercent = 80 }
+    foreach ($key in $Extra.Keys) { $entry[$key] = $Extra[$key] }
+    $entry
+}
+
+function Write-SwitchTestConfig {
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [object[]] $Accounts)
+    Set-Content -LiteralPath $Path -Value ([ordered]@{ claudePath = $null; accounts = $Accounts } | ConvertTo-Json -Depth 5)
+    $Path
+}
+
 Export-ModuleMember -Function *
