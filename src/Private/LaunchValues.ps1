@@ -54,8 +54,9 @@ function ConvertTo-SessionLabel {
     param([AllowNull()] [AllowEmptyString()] [string] $Value, [Parameter(Mandatory)] [string] $Name)
     if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
     $label = $Value.Trim()
-    if ($label.Length -gt $script:MaxLabelLength -or $label -notmatch '^[\p{L}\p{N} ._\-#()·:+@]+$') {
-        Stop-WithSwitchError InvalidArgument "-$Name must be 1-$($script:MaxLabelLength) characters: letters, digits, spaces and . _ - # ( ) · : + @"
+    # The first character must be a letter or digit: a label that starts with '-' would be read as an option.
+    if ($label.Length -gt $script:MaxLabelLength -or $label -notmatch '^[\p{L}\p{N}][\p{L}\p{N} ._\-#()·:+@]*$') {
+        Stop-WithSwitchError InvalidArgument "-$Name must be 1-$($script:MaxLabelLength) characters, start with a letter or digit, and use only letters, digits, spaces and . _ - # ( ) · : + @"
     }
     $label
 }
@@ -81,10 +82,12 @@ function Assert-BranchName {
     param([AllowNull()] [AllowEmptyString()] [string] $Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
     $branch = $Value.Trim()
-    $bad = $branch -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$' -or $branch -match '\.\.|//|\.lock(/|$)|[./]$'
+    $bad = $branch -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$' -or $branch -match '\.\.|//|\.lock(/|$)|[./]$' -or
+    $branch -match '(?i)(^|/)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|/|$)'
     if ($bad) {
         Stop-WithSwitchError InvalidArgument "-Worktree '$(Get-ShortText $Value 40)' is not a usable branch name (letters, digits, . _ - /; at most 100 characters)."
     }
+    Assert-GitAvailable
     $check = Invoke-ExternalCommand -FilePath 'git' -ArgumentList @('check-ref-format', '--branch', $branch) -TimeoutSeconds 30
     if ($check.TimedOut -or $check.ExitCode -ne 0) {
         Stop-WithSwitchError InvalidArgument "-Worktree '$branch' is not a valid git branch name."

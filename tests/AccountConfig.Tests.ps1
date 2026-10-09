@@ -93,6 +93,7 @@ Describe 'Get-SwitchAccountConfig' {
         @{ Case = 'not JSON'; Raw = '{ nope' }
         @{ Case = 'no accounts'; Raw = '{"accounts": []}' }
         @{ Case = 'no accounts key'; Raw = '{}' }
+        @{ Case = 'a name that means automatic'; Raw = '{"accounts":[{"name":"Auto","configDir":"~/x"}]}' }
         @{ Case = 'bad name'; Raw = '{"accounts":[{"name":"a b;","configDir":"~/x"}]}' }
         @{ Case = 'missing name'; Raw = '{"accounts":[{"configDir":"~/x"}]}' }
         @{ Case = 'missing configDir'; Raw = '{"accounts":[{"name":"A"}]}' }

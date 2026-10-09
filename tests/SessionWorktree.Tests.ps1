@@ -81,6 +81,39 @@ Describe 'worktree for a session' {
         @(Get-Content -LiteralPath (Join-Path $repo.Clone '.git' 'info' 'exclude') | Where-Object { $_ -eq '/.claude/worktrees/' }) | Should -HaveCount 1
     }
 
+    It 'adds the exclude entry on its own line also when the file lacks a final newline' {
+        $exclude = Join-Path $repo.Clone '.git' 'info' 'exclude'
+        [IO.File]::WriteAllText($exclude, '*.log')
+
+        InModuleScope SwitchAccounts -Parameters @{ Dir = $repo.Clone } {
+            New-SessionWorktree -Plan (Get-WorktreePlan -Directory $Dir -Branch 'nl') | Out-Null
+        }
+
+        @(Get-Content -LiteralPath $exclude) | Should -Be @('*.log', '/.claude/worktrees/')
+        git -C $repo.Clone status --porcelain | Should -BeNullOrEmpty
+    }
+
+    It 'does not take a plain folder in the main checkout for a worktree of the branch' {
+        $plain = Join-Path $repo.Clone '.claude' 'worktrees' 'main'
+        New-Item -ItemType Directory -Path $plain -Force | Out-Null
+
+        InModuleScope SwitchAccounts -Parameters @{ Dir = $repo.Clone } {
+            { New-SessionWorktree -Plan (Get-WorktreePlan -Directory $Dir -Branch 'main') } | Should -Throw -ErrorId 'SwitchAccounts.Environment'
+        }
+    }
+
+    It 'reports a missing git as an environment problem' {
+        $old = $env:PATH
+        try {
+            $env:PATH = Join-Path $TestDrive 'no-tools'
+            InModuleScope SwitchAccounts -Parameters @{ Dir = $repo.Clone } {
+                { Get-WorktreePlan -Directory $Dir -Branch 'x' } | Should -Throw -ErrorId 'SwitchAccounts.Environment'
+            }
+        } finally {
+            $env:PATH = $old
+        }
+    }
+
     It 'reuses a worktree that already holds the branch' {
         InModuleScope SwitchAccounts -Parameters @{ Dir = $repo.Clone } {
             $plan = Get-WorktreePlan -Directory $Dir -Branch 'again'
@@ -95,6 +128,17 @@ Describe 'worktree for a session' {
         InModuleScope SwitchAccounts -Parameters @{ Dir = $repo.Clone } {
             { New-SessionWorktree -Plan (Get-WorktreePlan -Directory $Dir -Branch 'taken') } | Should -Throw -ErrorId 'SwitchAccounts.Environment' -ExpectedMessage '*already exists*'
         }
+    }
+
+    It 'refuses to create a worktree through a link at .claude/worktrees' -Skip:(-not $IsWindows) {
+        $elsewhere = Join-Path $repo.Root 'elsewhere'
+        New-Item -ItemType Directory -Path $elsewhere, (Join-Path $repo.Clone '.claude') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $repo.Clone '.claude' 'worktrees') -Target $elsewhere | Out-Null
+
+        InModuleScope SwitchAccounts -Parameters @{ Dir = $repo.Clone } {
+            { New-SessionWorktree -Plan (Get-WorktreePlan -Directory $Dir -Branch 'linked-out') } | Should -Throw -ErrorId 'SwitchAccounts.Environment' -ExpectedMessage '*is a link*'
+        }
+        Get-ChildItem -LiteralPath $elsewhere | Should -BeNullOrEmpty
     }
 
     It 'refuses a folder that holds something else' {

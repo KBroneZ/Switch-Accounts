@@ -9,9 +9,16 @@ BeforeAll {
         param([string[]] $Arguments)
         $stdout = Join-Path $TestDrive "out-$([guid]::NewGuid()).txt"
         $stderr = Join-Path $TestDrive "err-$([guid]::NewGuid()).txt"
-        $process = Start-Process -FilePath (Get-Process -Id $PID).Path -Wait -PassThru -NoNewWindow `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
-            -ArgumentList (@('-NoProfile', '-File', $script) + $Arguments)
+        $old = $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES
+        try {
+            $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES = '1'
+            $process = Start-Process -FilePath (Get-Process -Id $PID).Path -Wait -PassThru -NoNewWindow `
+                -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
+                -ArgumentList (@('-NoProfile', '-File', $script) + $Arguments)
+        } finally {
+            if ($null -eq $old) { Remove-Item Env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES -ErrorAction SilentlyContinue }
+            else { $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES = $old }
+        }
         [pscustomobject]@{
             ExitCode = $process.ExitCode
             Out      = (Get-Content -LiteralPath $stdout -Raw -Encoding utf8) + ''
@@ -154,6 +161,24 @@ Describe 'scripts/open-session.ps1' {
 
         $run.ExitCode | Should -Be 2
         Get-ChildItem -LiteralPath $f.Root -Filter '*.tmp' | Should -BeNullOrEmpty
+    }
+
+    It 'refuses -ConfigPath and -ClaudePath unless the test switch is set' {
+        $f = New-WrapperFixture @(@{ Name = 'A'; Percent = '10' })
+        $stdout = Join-Path $TestDrive "o-$([guid]::NewGuid()).txt"
+        $stderr = Join-Path $TestDrive "e-$([guid]::NewGuid()).txt"
+        $old = $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES
+        try {
+            Remove-Item Env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES -ErrorAction SilentlyContinue
+            $process = Start-Process -FilePath (Get-Process -Id $PID).Path -Wait -PassThru -NoNewWindow `
+                -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
+                -ArgumentList @('-NoProfile', '-File', $script, '-ClaudePath', $fake, '-Directory', $f.Project, '-PrintOnly')
+        } finally {
+            if ($old) { $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES = $old }
+        }
+
+        $process.ExitCode | Should -Be 2
+        Get-Content -LiteralPath $stderr -Raw | Should -BeLike '*for tests*'
     }
 
     It 'documents every exit code' {

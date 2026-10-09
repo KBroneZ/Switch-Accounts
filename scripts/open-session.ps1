@@ -9,6 +9,9 @@
     -ShowConfig       print ~/.claude-switch/accounts.json (created with defaults when missing)
     -Json             print the result object as JSON instead of the summary line
 
+    -ConfigPath and -ClaudePath only work when SWITCH_ACCOUNTS_ALLOW_OVERRIDES=1 (the tests set it):
+    a caller that can pass them could make the script run any program.
+
     Exit codes: 0 done (or listed) | 1 unexpected error | 2 invalid arguments or config |
     3 no account can start now (cap reached or usage unknown) |
     4 the account is not ready (first start unfinished, or folder not trusted) |
@@ -60,6 +63,11 @@ function Get-ExitCode {
 }
 
 try {
+    if (($ConfigPath -or $ClaudePath) -and $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES -ne '1') {
+        throw [System.Management.Automation.ErrorRecord]::new(
+            [System.ArgumentException]::new('-ConfigPath and -ClaudePath are for tests. Set claudePath in ~/.claude-switch/accounts.json instead.'),
+            'SwitchAccounts.InvalidArgument', 'InvalidArgument', $null)
+    }
     $common = @{}
     if ($ConfigPath) { $common.ConfigPath = $ConfigPath }
     if ($ClaudePath) { $common.ClaudePath = $ClaudePath }

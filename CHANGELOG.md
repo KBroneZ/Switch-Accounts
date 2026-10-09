@@ -7,6 +7,7 @@
 - `Get-ClaudeAccountStatus` (`open-session.ps1 -List`): usage (5 h and weekly), caps, reset time and readiness of every account. Unknown usage means not available.
 - Readiness: a session does not start when the account has not finished its first start or does not trust the folder; the error says what is missing. Only `hasCompletedOnboarding` and the folder trust marks of `.claude.json` are read. `-TrustDirectory` (explicit) marks the folder as trusted, with a backup of the file.
 - `skills/switch-account` and `scripts/install-skill.ps1`: the skill (one `AskUserQuestion` for account, model, effort and Remote Control) is installed from this repository, with a backup of the previous one.
+- Hardening from the code and security reviews: labels cannot start with `-`; a `claude.cmd`/`.bat` CLI is refused; `-TrustDirectory` also refuses the parents of the home folder, system folders and configured config dirs and replaces the file atomically; worktrees refuse links and Windows device names; the wrapper only accepts `-ConfigPath`/`-ClaudePath` with `SWITCH_ACCOUNTS_ALLOW_OVERRIDES=1`; a missing git is exit code 5.
 - Tests: the fake CLI writes UTF-8, so the usage tests also pass when the console code page is not UTF-8.
 
 ## 0.1.0 — unreleased

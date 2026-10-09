@@ -71,6 +71,27 @@ function Get-NotReadyAdvice {
     }
 }
 
+function Test-BroadTrustTarget {
+    <# Folders that must never be marked as trusted: roots, the home folder and its parents, system folders, config dirs. #>
+    param([Parameter(Mandatory)] [string] $Path, [string[]] $ProtectedPaths = @())
+    if ([IO.Path]::GetPathRoot($Path) -eq [IO.Path]::GetFullPath($Path)) { return $true }
+    $homeDir = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($HOME))
+    $inside = {
+        param($child, $parent)
+        $p = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($parent))
+        (Test-SamePath $child $p) -or $child.StartsWith($p + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+        $child.StartsWith($p + [IO.Path]::AltDirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if ((& $inside $homeDir $Path)) { return $true }
+    $system = if ($IsWindows) { @($env:windir, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData) }
+    else { @('/usr', '/etc', '/bin', '/sbin', '/boot', '/proc', '/sys') }
+    $protected = @($system) + @($ProtectedPaths) + @(Join-Path $homeDir '.claude')
+    foreach ($folder in $protected) {
+        if ($folder -and (& $inside $Path $folder)) { return $true }
+    }
+    $false
+}
+
 function Set-DirectoryTrust {
     <#
       Marks a folder as trusted in the account's .claude.json (hasTrustDialogAccepted). Only for an
@@ -79,13 +100,16 @@ function Set-DirectoryTrust {
       so that every other value stays as it was, a backup is kept, and the swap is atomic.
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    param([Parameter(Mandatory)] [string] $GlobalConfigPath, [Parameter(Mandatory)] [string] $Directory)
+    param(
+        [Parameter(Mandatory)] [string] $GlobalConfigPath,
+        [Parameter(Mandatory)] [string] $Directory,
+        [string[]] $ProtectedPaths = @()
+    )
 
     $full = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Directory))
-    $isRoot = [IO.Path]::GetPathRoot($full) -eq [IO.Path]::GetFullPath($full)
-    $inConfigDir = $full.StartsWith((Join-Path $HOME '.claude'), [StringComparison]::OrdinalIgnoreCase)
-    $broad = $isRoot -or (Test-SamePath $full $HOME) -or $inConfigDir
-    if ($broad) { Stop-WithSwitchError InvalidArgument "-TrustDirectory refuses '$full' (too broad, or a config dir). Use the project folder." }
+    if (Test-BroadTrustTarget -Path $full -ProtectedPaths $ProtectedPaths) {
+        Stop-WithSwitchError InvalidArgument "-TrustDirectory refuses '$full' (a drive root, the home folder or a parent of it, a system folder, or a config dir). Use the project folder."
+    }
     if (-not (Test-Path -LiteralPath $GlobalConfigPath -PathType Leaf)) {
         Stop-WithSwitchError NotReady "Cannot trust a folder: $GlobalConfigPath does not exist (first start not finished)."
     }
@@ -100,7 +124,8 @@ function Set-DirectoryTrust {
         }
         if ($root['projects'] -isnot [System.Text.Json.Nodes.JsonObject]) { $root['projects'] = [System.Text.Json.Nodes.JsonObject]::new() }
         $projects = $root['projects']
-        $key = $projects | ForEach-Object { $_.Key } | Where-Object { (ConvertTo-ComparablePath $_) -eq (ConvertTo-ComparablePath $full) } | Select-Object -First 1
+        $wanted = ConvertTo-ComparablePath $full
+        $key = $projects | ForEach-Object { $_.Key } | Where-Object { try { (ConvertTo-ComparablePath $_) -eq $wanted } catch { $false } } | Select-Object -First 1
         if (-not $key) { $key = $full; $projects[$key] = [System.Text.Json.Nodes.JsonObject]::new() }
         if ($projects[$key] -isnot [System.Text.Json.Nodes.JsonObject]) { $projects[$key] = [System.Text.Json.Nodes.JsonObject]::new() }
         $projects[$key]['hasTrustDialogAccepted'] = [System.Text.Json.Nodes.JsonValue]::Create($true)
@@ -110,14 +135,15 @@ function Set-DirectoryTrust {
         $options.Encoder = [System.Text.Encodings.Web.JavaScriptEncoder]::UnsafeRelaxedJsonEscaping
         $temp = "$GlobalConfigPath.$PID.tmp"
         [IO.File]::WriteAllText($temp, $root.ToJsonString($options), [System.Text.UTF8Encoding]::new($false))
+        if (-not $IsWindows) { [IO.File]::SetUnixFileMode($temp, [IO.File]::GetUnixFileMode($GlobalConfigPath)) }
         $after = Get-Item -LiteralPath $GlobalConfigPath
         if ($after.LastWriteTimeUtc -ne $before.LastWriteTimeUtc -or $after.Length -ne $before.Length) {
             # A running session wrote the file meanwhile; read it again instead of overwriting.
             Remove-Item -LiteralPath $temp -Force
             continue
         }
-        Copy-Item -LiteralPath $GlobalConfigPath -Destination "$GlobalConfigPath.switch-backup" -Force
-        Move-Item -LiteralPath $temp -Destination $GlobalConfigPath -Force
+        # Replace swaps in one step and keeps the file it replaced as the backup (same ACL or mode).
+        [IO.File]::Replace($temp, $GlobalConfigPath, "$GlobalConfigPath.switch-backup")
         return $true
     }
     Stop-WithSwitchError Environment "Cannot trust a folder: $GlobalConfigPath keeps changing (a session is writing it). Try again."

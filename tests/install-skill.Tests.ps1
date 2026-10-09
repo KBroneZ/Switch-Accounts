@@ -27,9 +27,16 @@ Describe 'scripts/install-skill.ps1' {
         & $installer -ConfigDir $dir | Out-Null
         $path = Join-Path $TestDrive "inst-$([guid]::NewGuid())" 'accounts.json'
 
-        $out = & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $dir 'skills' 'switch-account' 'scripts' 'open-session.ps1') -ShowConfig -ConfigPath $path
+        $previous = $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES
+        try {
+            $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES = '1'
+            $out = & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $dir 'skills' 'switch-account' 'scripts' 'open-session.ps1') -ShowConfig -ConfigPath $path
+            $exit = $LASTEXITCODE
+        } finally {
+            if ($null -eq $previous) { Remove-Item Env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES -ErrorAction SilentlyContinue } else { $env:SWITCH_ACCOUNTS_ALLOW_OVERRIDES = $previous }
+        }
 
-        $LASTEXITCODE | Should -Be 0
+        $exit | Should -Be 0
         ($out -join "`n") | Should -BeLike '*created with defaults*'
     }
 
@@ -45,6 +52,15 @@ Describe 'scripts/install-skill.ps1' {
         $backup | Should -HaveCount 1
         Get-Content -LiteralPath (Join-Path $backup[0].FullName 'SKILL.md') | Should -Be 'old skill'
         Get-Content -LiteralPath (Join-Path $old 'SKILL.md') -Raw | Should -Not -BeLike 'old skill*'
+    }
+
+    It 'keeps every earlier version when run several times in a row' {
+        $dir = New-ConfigDir
+        & $installer -ConfigDir $dir | Out-Null
+        & $installer -ConfigDir $dir | Out-Null
+        & $installer -ConfigDir $dir | Out-Null
+
+        @(Get-ChildItem -LiteralPath (Join-Path $dir 'backups') -Directory) | Should -HaveCount 2
     }
 
     It 'can be run again, and -NoBackup keeps no copy' {

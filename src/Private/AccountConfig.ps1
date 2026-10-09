@@ -65,6 +65,7 @@ function ConvertTo-AccountEntry {
     if ($name -isnot [string] -or $name -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$') {
         & $fail 'needs a "name" of 1-30 letters, digits, . _ -'
     }
+    if ($name -ieq 'auto') { & $fail '("auto") cannot be a name: it means "pick the account for me"' }
     $dir = Get-ConfigValue $Raw 'configDir'
     if ($dir -isnot [string] -or [string]::IsNullOrWhiteSpace($dir)) { & $fail "($name) needs a `"configDir`"" }
     $rc = Get-ConfigValue $Raw 'remoteControl'

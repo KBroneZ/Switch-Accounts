@@ -1,9 +1,16 @@
 # A git worktree for one session: <repo>\.claude\worktrees\<branch>, branched from the
 # remote's default branch.
 
+function Assert-GitAvailable {
+    if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+        Stop-WithSwitchError Environment 'git was not found on PATH; -Worktree needs it.'
+    }
+}
+
 function Get-MainCheckoutRoot {
     <# Top folder of the main checkout, also when Path is inside a linked worktree. #>
     param([Parameter(Mandatory)] [string] $Path)
+    Assert-GitAvailable
     $run = Invoke-ExternalCommand -FilePath 'git' -ArgumentList @('-C', $Path, 'rev-parse', '--path-format=absolute', '--git-common-dir') -TimeoutSeconds 30
     if ($run.TimedOut -or $run.ExitCode -ne 0 -or -not $run.StdOut.Trim()) {
         Stop-WithSwitchError InvalidArgument "-Worktree needs a git repository, and '$Path' is not inside one."
@@ -31,12 +38,12 @@ function Get-WorktreePlan {
     <# Where the worktree of a branch goes and from what; no side effects. #>
     param([Parameter(Mandatory)] [string] $Directory, [Parameter(Mandatory)] [string] $Branch)
     $root = Get-MainCheckoutRoot -Path $Directory
-    $folder = $Branch.Replace('/', '-')
-    [pscustomobject]@{
-        RepoRoot = $root
-        Branch   = $Branch
-        Path     = [IO.Path]::GetFullPath((Join-Path $root '.claude' 'worktrees' $folder))
+    $base = [IO.Path]::GetFullPath((Join-Path $root '.claude' 'worktrees'))
+    $path = [IO.Path]::GetFullPath((Join-Path $base $Branch.Replace('/', '-')))
+    if (-not $path.StartsWith($base + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        Stop-WithSwitchError InvalidArgument "-Worktree '$Branch' would put the worktree outside $base."
     }
+    [pscustomobject]@{ RepoRoot = $root; Branch = $Branch; Path = $path }
 }
 
 function Add-LocalGitExclude {
@@ -46,10 +53,11 @@ function Add-LocalGitExclude {
     if ($run.ExitCode -ne 0) { return }
     $file = $run.StdOut.Trim()
     $entry = '/.claude/worktrees/'
-    $existing = if (Test-Path -LiteralPath $file) { @(Get-Content -LiteralPath $file) } else { @() }
-    if ($existing -contains $entry) { return }
+    $text = if (Test-Path -LiteralPath $file) { [IO.File]::ReadAllText($file) } else { '' }
+    if (($text -split '\r?\n') -contains $entry) { return }
     New-Item -ItemType Directory -Path (Split-Path -Parent $file) -Force | Out-Null
-    Add-Content -LiteralPath $file -Value $entry
+    $lead = if ($text -and -not $text.EndsWith("`n")) { "`n" } else { '' }
+    [IO.File]::AppendAllText($file, $lead + $entry + "`n")
 }
 
 function New-SessionWorktree {
@@ -61,8 +69,10 @@ function New-SessionWorktree {
     param([Parameter(Mandatory)] $Plan)
     $warnings = [System.Collections.Generic.List[string]]::new()
     if (Test-Path -LiteralPath $Plan.Path) {
-        $current = Invoke-ExternalCommand -FilePath 'git' -ArgumentList @('-C', $Plan.Path, 'rev-parse', '--abbrev-ref', 'HEAD') -TimeoutSeconds 30
-        if ($current.ExitCode -eq 0 -and $current.StdOut.Trim() -eq $Plan.Branch) {
+        $current = Invoke-ExternalCommand -FilePath 'git' -ArgumentList @('-C', $Plan.Path, 'rev-parse', '--abbrev-ref', 'HEAD', '--show-toplevel') -TimeoutSeconds 30
+        $lines = @($current.StdOut -split '\r?\n' | Where-Object { $_ })
+        # A plain folder inside the main checkout answers with the main checkout's branch and top folder.
+        if ($current.ExitCode -eq 0 -and $lines.Count -eq 2 -and $lines[0] -eq $Plan.Branch -and (Test-SamePath $lines[1] $Plan.Path)) {
             return [pscustomobject]@{ Plan = $Plan; Reused = $true; Warnings = @() }
         }
         Stop-WithSwitchError Environment "$($Plan.Path) already exists and does not hold branch '$($Plan.Branch)'."
@@ -75,6 +85,12 @@ function New-SessionWorktree {
     $fetch = Invoke-ExternalCommand -FilePath 'git' -ArgumentList @('-C', $Plan.RepoRoot, 'fetch', '--quiet', 'origin', $base.Substring('origin/'.Length)) -TimeoutSeconds 120
     if ($fetch.TimedOut -or $fetch.ExitCode -ne 0) {
         $warnings.Add("could not fetch $base; the worktree starts from the last known $base")
+    }
+    foreach ($folder in (Join-Path $Plan.RepoRoot '.claude'), (Join-Path $Plan.RepoRoot '.claude' 'worktrees')) {
+        $item = Get-Item -LiteralPath $folder -Force -ErrorAction SilentlyContinue
+        if ($item -and $item.LinkType) {
+            Stop-WithSwitchError Environment "$folder is a link ($($item.LinkType)); a worktree would end up at its target. Replace it with a real folder."
+        }
     }
     Add-LocalGitExclude -RepoRoot $Plan.RepoRoot
     New-Item -ItemType Directory -Path (Split-Path -Parent $Plan.Path) -Force | Out-Null

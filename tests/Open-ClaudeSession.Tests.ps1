@@ -354,6 +354,65 @@ Describe 'Open-ClaudeSession' {
             Get-FakeCalls -ConfigDir $f.Entries[0].configDir | Should -HaveCount 0
         }
 
+        It 'refuses a CLI that is a batch file, because cmd.exe would re-read the prompt' -TestCases @(
+            @{ Name = 'claude.cmd' }
+            @{ Name = 'CLAUDE.BAT' }
+        ) {
+            $f = New-Fixture @(@{ Name = 'A' })
+            $shim = Join-Path $f.Root $Name
+            Set-Content -LiteralPath $shim -Value '@echo off'
+
+            { Open-Test $f -Arguments @{ ClaudePath = $shim; Account = 'A'; NoUsageCheck = $true; PrintOnly = $true } } |
+                Should -Throw -ErrorId 'SwitchAccounts.Environment' -ExpectedMessage '*batch file*'
+            Should -Invoke -ModuleName SwitchAccounts Start-TerminalTab -Times 0
+        }
+
+        It 'refuses a bare claude that resolves to a batch file' -Skip:(-not $IsWindows) {
+            $f = New-Fixture @(@{ Name = 'A' })
+            $bin = Join-Path $f.Root 'bin'
+            New-Item -ItemType Directory -Path $bin | Out-Null
+            Set-Content -LiteralPath (Join-Path $bin 'claude.cmd') -Value '@echo off'
+            $old = $env:PATH
+            try {
+                $env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH
+                { Open-Test $f -Arguments @{ ClaudePath = 'claude'; Account = 'A'; NoUsageCheck = $true; PrintOnly = $true } } |
+                    Should -Throw -ErrorId 'SwitchAccounts.Environment' -ExpectedMessage '*batch file*'
+            } finally {
+                $env:PATH = $old
+            }
+        }
+
+        It 'says how many tabs were already open when a later one fails' {
+            $script:calls = 0
+            Mock -ModuleName SwitchAccounts Start-TerminalTab { if ((++$script:calls) -eq 2) { throw 'wt exploded' } }
+            $f = New-Fixture @(@{ Name = 'A' })
+
+            { Open-Test $f -Arguments @{ Count = 3 } } | Should -Throw -ErrorId 'SwitchAccounts.Environment' -ExpectedMessage '*tab 2 of 3*1 tab(s) were already opened*'
+        }
+
+        It 'cannot be given a label that reads as an option: <Case>' -TestCases @(
+            @{ Case = 'session name'; Arguments = @{ SessionName = '--dangerously-skip-permissions'; RemoteControl = $true } }
+            @{ Case = 'session name that eats the prompt'; Arguments = @{ SessionName = '--permission-mode'; RemoteControl = $true; InitialPrompt = 'bypassPermissions' } }
+            @{ Case = 'title used as the session name'; Arguments = @{ Title = '-p'; RemoteControl = $true } }
+        ) {
+            $f = New-Fixture @(@{ Name = 'A' })
+            $bad = @{ PrintOnly = $true }
+            foreach ($key in $Arguments.Keys) { $bad[$key] = $Arguments[$key] }
+
+            { Open-Test $f -Arguments $bad } | Should -Throw -ErrorId 'SwitchAccounts.InvalidArgument'
+        }
+
+        It 'names a Remote Control session after a folder whose name starts with a dash without starting with one' {
+            $f = New-Fixture @(@{ Name = 'A' })
+            $odd = Join-Path $f.Root '-odd folder'
+            New-Item -ItemType Directory -Path $odd | Out-Null
+            New-ClaudeJson -ConfigDir $f.Entries[0].configDir -Trusted @($odd)
+
+            $result = Open-Test $f -Arguments @{ Directory = $odd; RemoteControl = $true; PrintOnly = $true }
+
+            $result.RemoteControlName | Should -Be 'odd folder · A'
+        }
+
         It 'never offers a way to skip permission checks' {
             (Get-Command Open-ClaudeSession).Parameters.Keys | Should -Not -Contain 'DangerouslySkipPermissions'
             $f = New-Fixture @(@{ Name = 'A' })

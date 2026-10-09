@@ -27,6 +27,12 @@ function Get-LaunchTools {
     <# Paths of the CLI and of Windows Terminal. Both are only required when a tab will open. #>
     param([bool] $Preview, [string] $ClaudePath, [string] $Configured, [string] $WtPath)
     $claude = Resolve-ClaudePath -Override $ClaudePath -Configured $Configured
+    $resolved = (Get-Command -Name $claude -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1)?.Source
+    foreach ($candidate in $claude, $resolved) {
+        if ($candidate -match '(?i)\.(cmd|bat)$') {
+            Stop-WithSwitchError Environment "The CLI is a batch file ($candidate); cmd.exe would re-read the prompt. Point claudePath at claude.exe instead."
+        }
+    }
     $wt = if ($WtPath) { $WtPath } else { (Get-Command wt -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)?.Source }
     if (-not $Preview) {
         if (-not (Get-Command -Name $claude -ErrorAction SilentlyContinue)) {
@@ -41,6 +47,8 @@ function ConvertTo-SafeLabel {
     <# Makes folder names fit the label rules (no ';', no control characters). #>
     param([string] $Value)
     $label = [regex]::Replace($Value, '[^\p{L}\p{N} ._\-#()·:+@]', '-')
+    $label = [regex]::Replace($label, '^[^\p{L}\p{N}]+', '')
+    if (-not $label) { return 'session' }
     if ($label.Length -gt 50) { $label.Substring(0, 50) } else { $label }
 }
 

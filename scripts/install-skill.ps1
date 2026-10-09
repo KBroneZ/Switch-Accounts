@@ -34,6 +34,7 @@ if (-not (Test-Path -LiteralPath $ConfigDir -PathType Container)) { throw "Confi
 $skills = Join-Path (Resolve-Path -LiteralPath $ConfigDir).Path 'skills'
 $target = Join-Path $skills 'switch-account'
 $stage = Join-Path $skills ".switch-account.new-$PID"
+$backup = $null
 if (-not $PSCmdlet.ShouldProcess($target, 'Install the switch-account skill')) { return }
 
 try {
@@ -48,12 +49,17 @@ try {
         } else {
             $backups = Join-Path (Split-Path -Parent $skills) 'backups'
             New-Item -ItemType Directory -Path $backups -Force | Out-Null
-            $backup = Join-Path $backups "switch-account-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            $backup = Join-Path $backups "switch-account-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')-$PID"
             Move-Item -LiteralPath $target -Destination $backup
             Write-Host "Previous skill saved at $backup"
         }
     }
-    Move-Item -LiteralPath $stage -Destination $target
+    try {
+        Move-Item -LiteralPath $stage -Destination $target
+    } catch {
+        if ($backup -and (Test-Path -LiteralPath $backup)) { Move-Item -LiteralPath $backup -Destination $target }
+        throw
+    }
 } finally {
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
 }

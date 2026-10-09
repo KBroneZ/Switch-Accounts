@@ -59,7 +59,7 @@ function Open-ClaudeSession {
         if ($preview) { $warnings.Add("would mark $trustDir as trusted for account $($entry.Name)") }
         else {
             $globalConfig = Get-AccountGlobalConfigPath -ConfigDir $entry.ConfigDir -IsDefault $entry.IsDefaultConfigDir
-            Set-DirectoryTrust -GlobalConfigPath $globalConfig -Directory $trustDir | Out-Null
+            Set-DirectoryTrust -GlobalConfigPath $globalConfig -Directory $trustDir -ProtectedPaths @($config.Accounts.ConfigDir) | Out-Null
         }
     }
     $folders = @(Initialize-SessionFolders -Request $request -Plans $plans -Count $Count -Preview $preview -Warnings $warnings)
@@ -74,7 +74,10 @@ function Open-ClaudeSession {
             -Index $i -Count $Count -ClaudePath $tools.Claude
         if (-not $PrintOnly -and $PSCmdlet.ShouldProcess("tab '$($session.Title)' ($($entry.Name))", 'Open Claude Code session')) {
             try { Start-TerminalTab -WtPath $tools.Wt -Arguments $session.WtArguments }
-            catch { Stop-WithSwitchError Environment "Could not open tab $i of ${Count}: $($_.Exception.Message)" }
+            catch {
+                $already = if ($i -gt 1) { " $($i - 1) tab(s) were already opened; their worktrees stay." } else { '' }
+                Stop-WithSwitchError Environment "Could not open tab $i of ${Count}: $($_.Exception.Message)$already"
+            }
             $session.Opened = $true
         }
         $session

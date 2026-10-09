@@ -194,12 +194,47 @@ Describe 'Set-DirectoryTrust' {
         Test-Path -LiteralPath "$json.switch-backup" | Should -BeFalse
     }
 
-    It 'refuses a drive root, the home folder and config dirs' {
-        $broad = @([IO.Path]::GetPathRoot($script:projectDir), $HOME, (Join-Path $HOME '.claude'), (Join-Path $HOME '.claude-account2'))
+    It 'refuses the parents of the home folder, system folders and configured config dirs' {
+        $configured = Join-Path $TestDrive 'elsewhere' 'acc-b'
+        New-Item -ItemType Directory -Path $configured -Force | Out-Null
+        $broad = @((Split-Path -Parent $HOME), (Join-Path $configured 'sub'))
+        if ($IsWindows) { $broad += $env:windir }
         foreach ($folder in $broad) {
-            InModuleScope SwitchAccounts -Parameters @{ Json = $json; Dir = $folder } {
-                { Set-DirectoryTrust -GlobalConfigPath $Json -Directory $Dir } | Should -Throw -ErrorId 'SwitchAccounts.InvalidArgument'
+            InModuleScope SwitchAccounts -Parameters @{ Json = $json; Dir = $folder; Protected = @($configured) } {
+                { Set-DirectoryTrust -GlobalConfigPath $Json -Directory $Dir -ProtectedPaths $Protected } | Should -Throw -ErrorId 'SwitchAccounts.InvalidArgument'
             }
+        }
+    }
+
+    It 'accepts a project folder next to a protected one' {
+        $configured = Join-Path $TestDrive 'elsewhere2' 'acc-b'
+        InModuleScope SwitchAccounts -Parameters @{ Json = $json; Dir = $script:projectDir; Protected = @($configured) } {
+            Set-DirectoryTrust -GlobalConfigPath $Json -Directory $Dir -ProtectedPaths $Protected | Should -BeTrue
+        }
+    }
+
+    It 'survives a projects key that is not a path' {
+        Set-Content -LiteralPath $json -Value '{"hasCompletedOnboarding": true, "projects": {"": {"x": 1}}}'
+
+        InModuleScope SwitchAccounts -Parameters @{ Json = $json; Dir = $script:projectDir } {
+            Set-DirectoryTrust -GlobalConfigPath $Json -Directory $Dir | Should -BeTrue
+        }
+    }
+
+    It 'refuses a drive root, the home folder and config dirs' {
+        $second = Join-Path $HOME '.claude-account2'
+        $broad = @([IO.Path]::GetPathRoot($script:projectDir), $HOME, (Join-Path $HOME '.claude'), (Join-Path $HOME '.claude' 'skills'), $second)
+        foreach ($folder in $broad) {
+            InModuleScope SwitchAccounts -Parameters @{ Json = $json; Dir = $folder; Protected = @($second) } {
+                { Set-DirectoryTrust -GlobalConfigPath $Json -Directory $Dir -ProtectedPaths $Protected } | Should -Throw -ErrorId 'SwitchAccounts.InvalidArgument'
+            }
+        }
+    }
+
+    It 'does not mistake a folder that merely starts like a config dir for one' {
+        $sibling = Join-Path $HOME '.claude-projects' 'app'
+        InModuleScope SwitchAccounts -Parameters @{ Dir = $sibling } {
+            Test-BroadTrustTarget -Path $Dir -ProtectedPaths @((Join-Path $HOME '.claude-account2')) | Should -BeFalse
         }
     }
 

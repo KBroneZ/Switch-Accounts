@@ -106,10 +106,10 @@ object instead.
 | `-SubagentModel` | Sets `CLAUDE_CODE_SUBAGENT_MODEL` in the tab. |
 | `-RemoteControl`, `-SessionName` | Starts with `--remote-control`. The name is always passed: `-SessionName`, else `-Title`, else `<folder> · <account>`. |
 | `-InitialPrompt` | First message (up to 2000 characters, not starting with `-`). |
-| `-Title` | Tab title (letters, digits, spaces and `. _ - # ( ) · : + @`). |
+| `-Title` | Tab title: starts with a letter or digit, then letters, digits, spaces and `. _ - # ( ) · : + @` (a label that starts with `-` would read as an option). |
 | `-Worktree <branch>` | Creates `<repo>\.claude\worktrees\<branch>` on a new branch from the remote's default branch (fetched first; if the fetch fails it uses the last known one and warns), and opens the session there. The folder is added to `.git/info/exclude`. With `-Count n` the branches are `<branch>-1` … `-n`. |
 | `-Count n` | 1 to 8 equal tabs with numbered titles and Remote Control names. |
-| `-PrintOnly`, `-WhatIf` | Validate, choose the account and print the plan; open nothing, create no worktree, change no config. |
+| `-PrintOnly`, `-WhatIf` | Validate, choose the account and print the plan; open nothing, create no worktree, change no account config. (`-PrintOnly` still creates `accounts.json` with defaults when it is missing; `-WhatIf` does not.) |
 | `-TrustDirectory` | See below. |
 | `-NoUsageCheck` | Skip the usage read for a named account. |
 
@@ -143,7 +143,11 @@ Exit codes of `scripts/open-session.ps1`:
 
 `~/.claude` is the default config dir: its tab gets no `CLAUDE_CONFIG_DIR`. For any other dir the
 tab sets it. `maxWeeklyPercent` is optional. `claudePath` is optional (otherwise `claude` from
-`PATH`, else the newest binary of the desktop app).
+`PATH`, else the newest binary of the desktop app). It must not be a `.cmd` or `.bat` file (for
+example an npm shim): `cmd.exe` would read the prompt again, so use `claude.exe`. An account cannot
+be called `auto`. The wrapper ignores `-ConfigPath`/`-ClaudePath` unless
+`SWITCH_ACCOUNTS_ALLOW_OVERRIDES=1` is set (the tests do), so that a caller of the script cannot
+make it run another program.
 
 ### What a tab does and does not do
 
@@ -166,9 +170,11 @@ trusted (a trusted parent folder counts). Nothing else is read, kept or printed.
 `-TrustDirectory` is the only thing that edits an account's `.claude.json`: it marks the folder
 (for `-Worktree`, the repository) as trusted. A trusted folder runs its own hooks, MCP servers
 and settings, so use it only for code you trust. It refuses drive roots, the home folder and
-config dirs, edits the file as a JSON tree so every other value stays as it was, keeps the
-previous file as `.claude.json.switch-backup`, replaces it atomically, and does not work for an
-account whose first start is unfinished.
+config dirs (and the parents of the home folder, system folders and every `configDir` of
+`accounts.json`), edits the file as a JSON tree so every other value stays as it was, replaces it
+in one step and keeps the previous file as `.claude.json.switch-backup` (a full copy, so it holds
+what the original holds: treat it the same way), and does not work for an account whose first start
+is unfinished.
 
 ### Known limit: an idle account can read as unknown
 

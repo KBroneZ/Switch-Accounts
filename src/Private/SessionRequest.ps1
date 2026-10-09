@@ -6,7 +6,8 @@ function Resolve-SessionRequest {
         [string] $Account, [string] $Directory, [string] $Model, [string] $Effort, [string] $SubagentModel,
         [bool] $RemoteControl, [string] $SessionName, [string] $InitialPrompt, [string] $Title, [string] $Worktree,
         [bool] $TrustDirectory
-    )    $folder = if ($Directory) { $Directory } else { (Get-Location).Path }
+    )
+    $folder = if ($Directory) { $Directory } else { (Get-Location).Path }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
         Stop-WithSwitchError InvalidArgument "-Directory '$(Get-ShortText $folder 120)' does not exist or is not a folder."
     }

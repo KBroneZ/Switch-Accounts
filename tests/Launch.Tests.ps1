@@ -60,9 +60,22 @@ Describe 'launch values' {
         @{ Case = 'newline'; Value = "a`nb" }
         @{ Case = 'dollar'; Value = 'a $b' }
         @{ Case = 'too long'; Value = ('x' * 81) }
+        @{ Case = 'option look-alike'; Value = '--dangerously-skip-permissions' }
+        @{ Case = 'option permission-mode'; Value = '--permission-mode' }
+        @{ Case = 'short option'; Value = '-p' }
+        @{ Case = 'leading mark'; Value = '#tag' }
     ) {
         InModuleScope SwitchAccounts -Parameters @{ Value = $Value } {
             { ConvertTo-SessionLabel $Value 'Title' } | Should -Throw -ErrorId 'SwitchAccounts.InvalidArgument'
+        }
+    }
+
+    It 'turns a folder name into a label that cannot look like an option' {
+        InModuleScope SwitchAccounts {
+            ConvertTo-SafeLabel '-foo;bar' | Should -Be 'foo-bar'
+            ConvertTo-SafeLabel '--x' | Should -Be 'x'
+            ConvertTo-SafeLabel '---' | Should -Be 'session'
+            ConvertTo-SafeLabel 'fine name' | Should -Be 'fine name'
         }
     }
 
@@ -87,6 +100,18 @@ Describe 'launch values' {
         }
     }
 
+    It 'reports a missing git as an environment problem' {
+        $old = $env:PATH
+        try {
+            $env:PATH = Join-Path $TestDrive 'no-tools'
+            InModuleScope SwitchAccounts {
+                { Assert-BranchName 'feat/x' } | Should -Throw -ErrorId 'SwitchAccounts.Environment' -ExpectedMessage '*git was not found*'
+            }
+        } finally {
+            $env:PATH = $old
+        }
+    }
+
     It 'checks branch names: <Value>' -TestCases @(
         @{ Value = 'feat/login'; Ok = $true }
         @{ Value = 'fix-1.2'; Ok = $true }
@@ -99,6 +124,10 @@ Describe 'launch values' {
         @{ Value = 'ends/'; Ok = $false }
         @{ Value = 'ends.'; Ok = $false }
         @{ Value = 'a@{b'; Ok = $false }
+        @{ Value = 'nul'; Ok = $false }
+        @{ Value = 'feat/CON'; Ok = $false }
+        @{ Value = 'com1.txt'; Ok = $false }
+        @{ Value = 'console'; Ok = $true }
     ) {
         InModuleScope SwitchAccounts -Parameters @{ Value = $Value; Ok = $Ok } {
             if ($Ok) { Assert-BranchName $Value | Should -Be $Value }
