@@ -197,7 +197,7 @@ Describe 'Set-DirectoryTrust' {
     It 'refuses the parents of the home folder, system folders and configured config dirs' {
         $configured = Join-Path $TestDrive 'elsewhere' 'acc-b'
         New-Item -ItemType Directory -Path $configured -Force | Out-Null
-        $broad = @((Split-Path -Parent $HOME), (Join-Path $configured 'sub'))
+        $broad = @((Split-Path -Parent $HOME), (Join-Path $configured 'sub')) | Where-Object { $_ }
         if ($IsWindows) { $broad += $env:windir }
         foreach ($folder in $broad) {
             InModuleScope SwitchAccounts -Parameters @{ Json = $json; Dir = $folder; Protected = @($configured) } {

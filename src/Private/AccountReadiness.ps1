@@ -116,7 +116,7 @@ function Set-DirectoryTrust {
     if (-not $PSCmdlet.ShouldProcess($GlobalConfigPath, "Mark $full as trusted")) { return $false }
 
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $before = Get-Item -LiteralPath $GlobalConfigPath
+        $before = Get-Item -LiteralPath $GlobalConfigPath -Force
         try { $root = [System.Text.Json.Nodes.JsonNode]::Parse([IO.File]::ReadAllText($GlobalConfigPath)) }
         catch { Stop-WithSwitchError Environment "Cannot trust a folder: $GlobalConfigPath could not be parsed ($(Get-ShortText $_.Exception.Message 120))." }
         if ($root -isnot [System.Text.Json.Nodes.JsonObject] -or $root['hasCompletedOnboarding']?.ToJsonString() -ne 'true') {
@@ -136,14 +136,22 @@ function Set-DirectoryTrust {
         $temp = "$GlobalConfigPath.$PID.tmp"
         [IO.File]::WriteAllText($temp, $root.ToJsonString($options), [System.Text.UTF8Encoding]::new($false))
         if (-not $IsWindows) { [IO.File]::SetUnixFileMode($temp, [IO.File]::GetUnixFileMode($GlobalConfigPath)) }
-        $after = Get-Item -LiteralPath $GlobalConfigPath
+        $after = Get-Item -LiteralPath $GlobalConfigPath -Force
         if ($after.LastWriteTimeUtc -ne $before.LastWriteTimeUtc -or $after.Length -ne $before.Length) {
             # A running session wrote the file meanwhile; read it again instead of overwriting.
             Remove-Item -LiteralPath $temp -Force
             continue
         }
-        # Replace swaps in one step and keeps the file it replaced as the backup (same ACL or mode).
-        [IO.File]::Replace($temp, $GlobalConfigPath, "$GlobalConfigPath.switch-backup")
+        $backup = "$GlobalConfigPath.switch-backup"
+        if ($IsWindows) {
+            # Replace swaps in one step and keeps the file it replaced as the backup (same ACL).
+            [IO.File]::Replace($temp, $GlobalConfigPath, $backup)
+        } else {
+            # File.Replace is not dependable on Unix; a rename over the target is atomic there.
+            [IO.File]::Copy($GlobalConfigPath, $backup, $true)
+            [IO.File]::SetUnixFileMode($backup, [IO.File]::GetUnixFileMode($GlobalConfigPath))
+            [IO.File]::Move($temp, $GlobalConfigPath, $true)
+        }
         return $true
     }
     Stop-WithSwitchError Environment "Cannot trust a folder: $GlobalConfigPath keeps changing (a session is writing it). Try again."
