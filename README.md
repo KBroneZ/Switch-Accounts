@@ -27,6 +27,8 @@ git worktree and branch, and each one stops at a cap you set on its **5-hour usa
 | `Get-AccountUsage` | Reads one account's 5-hour and weekly usage by running `claude -p /usage` with that account's config dir. `/usage` is a local command: it does not make a model request. |
 | `Test-UsageCap` | Allows a session only if usage is known **and** below your cap. Unknown usage blocks (unknown is never treated as 0). An optional `-MaxWeeklyPercent` adds a cap on the weekly (all models) usage. |
 | `Initialize-SecondaryAccount` / `Test-SecondaryAccount` | Shares `rules`, `skills` and `agents` from your main config dir with the second one through directory links, and writes a `CLAUDE.md` that imports the main one. Credentials, account state, settings, projects and sessions are never read, copied or linked. |
+| `Open-ClaudeSession` / `scripts/open-session.ps1` | Opens a Windows Terminal tab with Claude Code on one of your accounts (`auto` = least used below its cap), with model, effort, subagent model, Remote Control, a first prompt and an optional git worktree. See [Open a session](#open-a-session-on-one-of-your-accounts). |
+| `Get-ClaudeAccountStatus` | Lists the accounts with 5-hour and weekly usage, caps, reset times and whether each can open a session in a folder. |
 | `Get-QueueTask` | Reads the task queue (one Markdown file per task). |
 | `Invoke-AccountSession` | Runs one `claude -p` session for one account, inside its cap, with turn and time limits. |
 | `Invoke-PipelineCycle` | One step of the pipeline: A implements task N+1 while B reviews task N. |
@@ -63,6 +65,132 @@ Test-UsageCap -Usage $usage -MaxFiveHourPercent 60
     -AccountAConfigDir ~/.claude -AccountBConfigDir ~/.claude-second `
     -MaxFiveHourPercentA 70 -MaxFiveHourPercentB 60 -DryRun
 ```
+
+## Open a session on one of your accounts
+
+`Open-ClaudeSession` (and its wrapper `scripts/open-session.ps1`) opens a Windows Terminal tab with
+Claude Code on one of your accounts, with the model, effort and Remote Control you ask for. It is
+the engine of the `switch-account` skill (see below). It starts one interactive session; it does
+not run work for you and it never moves work from one account to another.
+
+```powershell
+# The account with the lowest 5-hour usage that is below its cap and ready, Sonnet, high effort, /rc
+./scripts/open-session.ps1 -Account auto -Model sonnet -Effort high -RemoteControl
+
+# Account B, Haiku subagents, in a new worktree of the current repository, with a first prompt
+./scripts/open-session.ps1 -Account B -Model opus -SubagentModel haiku -Worktree fix/login `
+    -InitialPrompt 'Fix the failing login test'
+
+# Three equal tabs ("Run #1" ... "Run #3"), each with its own Remote Control name
+./scripts/open-session.ps1 -Account A -RemoteControl -SessionName Run -Count 3
+
+# Show what would happen without opening anything
+./scripts/open-session.ps1 -Account B -Model haiku -Effort low -PrintOnly
+
+# Accounts with usage, caps, reset times and readiness; the config file
+./scripts/open-session.ps1 -List
+./scripts/open-session.ps1 -ShowConfig
+```
+
+The last output line says what was opened, for example
+`Abierta: cuenta B · sonnet · effort high · subagentes haiku · RC «x» · C:\src\app`
+(the line is in Spanish because the skill reads it to the user). `-Json` prints the whole result
+object instead.
+
+| Option | Meaning |
+|--------|---------|
+| `-Account <name\|auto>` | An account of `accounts.json`, or `auto` (default). `auto` picks the lowest 5-hour usage among the accounts that are below their caps, ready for the folder and (with `-RemoteControl`) allowed to use it. Unknown usage means not available. A named account at its cap still opens, with a warning. |
+| `-Directory` | Folder of the session (default: the current one; it must exist). |
+| `-Model` | `opus`, `sonnet`, `haiku`, `fable` or a `claude-…` id (optional `[1m]`). Default: the account's `defaultModel`, else the CLI's. |
+| `-Effort` | `low`, `medium`, `high`, `xhigh` or `max`. |
+| `-SubagentModel` | Sets `CLAUDE_CODE_SUBAGENT_MODEL` in the tab. |
+| `-RemoteControl`, `-SessionName` | Starts with `--remote-control`. The name is always passed: `-SessionName`, else `-Title`, else `<folder> · <account>`. |
+| `-InitialPrompt` | First message (up to 2000 characters, not starting with `-`). |
+| `-Title` | Tab title (letters, digits, spaces and `. _ - # ( ) · : + @`). |
+| `-Worktree <branch>` | Creates `<repo>\.claude\worktrees\<branch>` on a new branch from the remote's default branch (fetched first; if the fetch fails it uses the last known one and warns), and opens the session there. The folder is added to `.git/info/exclude`. With `-Count n` the branches are `<branch>-1` … `-n`. |
+| `-Count n` | 1 to 8 equal tabs with numbered titles and Remote Control names. |
+| `-PrintOnly`, `-WhatIf` | Validate, choose the account and print the plan; open nothing, create no worktree, change no config. |
+| `-TrustDirectory` | See below. |
+| `-NoUsageCheck` | Skip the usage read for a named account. |
+
+Exit codes of `scripts/open-session.ps1`:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Done (also `-List`, `-ShowConfig`, `-PrintOnly`) |
+| 1 | Unexpected error |
+| 2 | Invalid argument or config file |
+| 3 | No account can start now (cap reached or usage unknown); the earliest reset is printed |
+| 4 | The account is not ready (first start unfinished, or folder not trusted); the message says what is missing |
+| 5 | Something the machine lacks: the CLI, Windows Terminal, git, or a worktree problem |
+
+### The account file
+
+`~/.claude-switch/accounts.json` is created with two default accounts the first time it is needed
+(`A` = `~/.claude`, `B` = `~/.claude-account2`). It holds no credentials.
+
+```json
+{
+  "claudePath": null,
+  "accounts": [
+    { "name": "A", "configDir": "~/.claude", "remoteControl": true, "maxFiveHourPercent": 80,
+      "maxWeeklyPercent": null, "defaultModel": null, "defaultEffort": null, "defaultSubagentModel": null },
+    { "name": "B", "configDir": "~/.claude-account2", "remoteControl": true, "maxFiveHourPercent": 80,
+      "maxWeeklyPercent": 90, "defaultModel": "sonnet", "defaultEffort": "high", "defaultSubagentModel": "haiku" }
+  ]
+}
+```
+
+`~/.claude` is the default config dir: its tab gets no `CLAUDE_CONFIG_DIR`. For any other dir the
+tab sets it. `maxWeeklyPercent` is optional. `claudePath` is optional (otherwise `claude` from
+`PATH`, else the newest binary of the desktop app).
+
+### What a tab does and does not do
+
+- It runs `pwsh -NoExit -EncodedCommand …` (Windows Terminal breaks on `;` and quotes in plain
+  arguments). The script first removes the variables a Claude Code session leaves to its child
+  processes (`CLAUDECODE`, `CLAUDE_*`, `ANTHROPIC_*`, `MCP_*`, `OTEL_*` and a few more) unless you
+  stored them in the Windows user or machine environment, then sets the account and starts the CLI.
+- Every value is checked before it reaches the command line (models, efforts, labels, branch
+  names, the prompt) and quoted as a PowerShell literal, including typographic quotes.
+- There is no option that skips permission checks, and none of them is ever passed.
+
+### Readiness and `-TrustDirectory`
+
+A new tab for an account that has not finished its first start (theme, login), or that does not
+trust the folder yet, would wait at a question with nobody in front of it. So nothing starts and
+the error says what is missing. Readiness reads two facts from the account's `.claude.json`
+(`~/.claude.json` for the default dir): `hasCompletedOnboarding` and the folders marked as
+trusted (a trusted parent folder counts). Nothing else is read, kept or printed.
+
+`-TrustDirectory` is the only thing that edits an account's `.claude.json`: it marks the folder
+(for `-Worktree`, the repository) as trusted. A trusted folder runs its own hooks, MCP servers
+and settings, so use it only for code you trust. It refuses drive roots, the home folder and
+config dirs, edits the file as a JSON tree so every other value stays as it was, keeps the
+previous file as `.claude.json.switch-backup`, replaces it atomically, and does not work for an
+account whose first start is unfinished.
+
+### Known limit: an idle account can read as unknown
+
+With CLI 2.1.295 an account with no activity in the current 5-hour window prints no
+`Current session` line in `/usage`, so its usage reads as unknown and `auto` skips it. Name the
+account (`-Account B`) to open it anyway; it then opens with a warning.
+
+### The `switch-account` skill
+
+`skills/switch-account/SKILL.md` is the single source of the Claude Code skill. If you do not say
+the account, model, effort or Remote Control, it asks them in one question and then runs the
+script. Triggers: `/switch-account`, "cambiar de cuenta", "abre otra sesión", "abre con /rc",
+"me quedé sin tokens". Install (or update) it with:
+
+```powershell
+./scripts/install-skill.ps1 -WhatIf   # see where it goes
+./scripts/install-skill.ps1           # copies SKILL.md, the wrapper and the module to ~/.claude/skills/switch-account
+```
+
+The previous skill is moved to `~/.claude/backups/switch-account-<time>` first. A second account
+whose `skills` folder is linked to the first by `Initialize-SecondaryAccount` gets the skill
+through that link. Run the installer again after pulling a new version.
 
 ## The task queue
 
