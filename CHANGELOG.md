@@ -2,6 +2,8 @@
 
 ## 0.2.0 — unreleased
 
+- Usage reader: an account with no use in the 5-hour window (CLI 2.1.295 prints no `Current session` line) reads as 0% with no reset time, but only in that exact layout; any other text without the line stays unknown. Its weekly usage stays unknown.
+
 - `Open-ClaudeSession` and `scripts/open-session.ps1`: open a Windows Terminal tab with Claude Code on one of your accounts. `-Account <name|auto>` (auto = the account with the lowest 5-hour usage that is below its caps and ready), `-Model`, `-Effort`, `-SubagentModel`, `-RemoteControl` with `-SessionName` (the name is always passed explicitly), `-InitialPrompt`, `-Title`, `-Worktree <branch>` (a git worktree under `<repo>\.claude\worktrees` from the remote's default branch), `-Count`, `-PrintOnly` / `-WhatIf`. Documented exit codes 0-5. The tab drops variables inherited from the launching session, the script travels as `-EncodedCommand`, every value is validated first, and no option can skip permission checks.
 - `~/.claude-switch/accounts.json` (created with defaults, `Get-SwitchAccountConfig`, `-ShowConfig`): per account the config dir, whether Remote Control is allowed, the 5-hour cap, an optional weekly cap and the default model, effort and subagent model. No credentials.
 - `Get-ClaudeAccountStatus` (`open-session.ps1 -List`): usage (5 h and weekly), caps, reset time and readiness of every account. Unknown usage means not available.

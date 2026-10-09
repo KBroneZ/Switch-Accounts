@@ -176,11 +176,14 @@ in one step and keeps the previous file as `.claude.json.switch-backup` (a full 
 what the original holds: treat it the same way), and does not work for an account whose first start
 is unfinished.
 
-### Known limit: an idle account can read as unknown
+### Accounts with no use in the window
 
 With CLI 2.1.295 an account with no activity in the current 5-hour window prints no
-`Current session` line in `/usage`, so its usage reads as unknown and `auto` skips it. Name the
-account (`-Account B`) to open it anyway; it then opens with a warning.
+`Current session` line in `/usage`. That exact layout (the subscription header and the usage
+breakdown, no `Current ...` line, no word that signals an error) reads as 0% with no reset time,
+so `auto` can pick the account. Anything else without a `Current session` line is still unknown.
+Its weekly usage stays unknown, so an account with a `maxWeeklyPercent` cap is not available
+until it has a weekly line.
 
 ### The `switch-account` skill
 
@@ -266,8 +269,9 @@ when it is shown; if it cannot be parsed, the role still waits but without a kno
 The weekly usage (`WeeklyPercent`, `WeeklyResetsAt`) comes from the `Current week (all models)`
 line. If that line is missing or cannot be read, the weekly usage is unknown (`$null`) and the
 5-hour result does not change; only a caller that sets `-MaxWeeklyPercent` is blocked by it.
-An account with no use in the current 5-hour window was read as 0% with no reset time; right after
-its first message the reset time took a few minutes to appear (CLI 2.1.284).
+An account with no use in the current 5-hour window reads as 0% with no reset time (CLI 2.1.284
+printed `0% used`; CLI 2.1.295 prints no limit line, which is recognised only in its exact layout);
+right after its first message the reset time took a few minutes to appear.
 
 Checked with Claude Code CLI 2.1.284 on two Pro accounts: the percentage matched the usage shown
 by the Claude desktop app for the same account at the same moment. The reset time is printed to

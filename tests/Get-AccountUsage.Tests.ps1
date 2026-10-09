@@ -112,6 +112,28 @@ Describe 'ConvertFrom-UsageText' {
         $usage.ResetsAt | Should -BeNullOrEmpty
     }
 
+    It 'reads an account with no use in the window as 0% without a reset time' {
+        $usage = ConvertFrom-UsageText -Text (Get-IdleUsageText) -Now $now
+
+        $usage.Status | Should -Be 'Known'
+        $usage.FiveHourPercent | Should -Be 0
+        $usage.ResetsAt | Should -BeNullOrEmpty
+        $usage.WeeklyPercent | Should -BeNullOrEmpty
+        $usage.Reason | Should -BeNullOrEmpty
+    }
+
+    It 'keeps the account unknown when the idle layout is not exact: <Case>' -TestCases @(
+        @{ Case = 'no subscription header'; Text = (Get-IdleUsageText) -replace 'You are currently using your subscription[^\n]*\n', '' }
+        @{ Case = 'no breakdown section'; Text = "You are currently using your subscription to power your Claude Code usage`n" }
+        @{ Case = 'a week line without a session line'; Text = (Get-IdleUsageText) + "`nCurrent week (all models): 3% used" }
+        @{ Case = 'an error is mentioned'; Text = (Get-IdleUsageText) + "`nCould not load usage: unavailable" }
+        @{ Case = 'a login prompt is mentioned'; Text = (Get-IdleUsageText) + "`nPlease log in again" }
+        @{ Case = 'the header appears twice'; Text = (Get-IdleUsageText) + "`n" + (Get-IdleUsageText) }
+        @{ Case = 'only the breakdown title'; Text = "What's contributing to your limits usage?`nnothing" }
+    ) {
+        (ConvertFrom-UsageText -Text $Text -Now $now).Status | Should -Be 'Unknown'
+    }
+
     It 'is Unknown when <Case>' -TestCases @(
         @{ Case = 'the text is empty'; Text = '' }
         @{ Case = 'there is no current-session line'; Text = 'Current week (all models): 50% used' }
@@ -152,6 +174,28 @@ Describe 'Get-AccountUsage' {
 
         (Get-AccountUsage -ConfigDir $a -ClaudePath $fake -Now $now).FiveHourPercent | Should -Be 10
         (Get-AccountUsage -ConfigDir $b -ClaudePath $fake -Now $now).FiveHourPercent | Should -Be 90
+    }
+
+    It 'reads an account with no use in the window as 0% without a reset time' {
+        $usage = ConvertFrom-UsageText -Text (Get-IdleUsageText) -Now $now
+
+        $usage.Status | Should -Be 'Known'
+        $usage.FiveHourPercent | Should -Be 0
+        $usage.ResetsAt | Should -BeNullOrEmpty
+        $usage.WeeklyPercent | Should -BeNullOrEmpty
+        $usage.Reason | Should -BeNullOrEmpty
+    }
+
+    It 'keeps the account unknown when the idle layout is not exact: <Case>' -TestCases @(
+        @{ Case = 'no subscription header'; Text = (Get-IdleUsageText) -replace 'You are currently using your subscription[^\n]*\n', '' }
+        @{ Case = 'no breakdown section'; Text = "You are currently using your subscription to power your Claude Code usage`n" }
+        @{ Case = 'a week line without a session line'; Text = (Get-IdleUsageText) + "`nCurrent week (all models): 3% used" }
+        @{ Case = 'an error is mentioned'; Text = (Get-IdleUsageText) + "`nCould not load usage: unavailable" }
+        @{ Case = 'a login prompt is mentioned'; Text = (Get-IdleUsageText) + "`nPlease log in again" }
+        @{ Case = 'the header appears twice'; Text = (Get-IdleUsageText) + "`n" + (Get-IdleUsageText) }
+        @{ Case = 'only the breakdown title'; Text = "What's contributing to your limits usage?`nnothing" }
+    ) {
+        (ConvertFrom-UsageText -Text $Text -Now $now).Status | Should -Be 'Unknown'
     }
 
     It 'is Unknown when <Case>' -TestCases @(

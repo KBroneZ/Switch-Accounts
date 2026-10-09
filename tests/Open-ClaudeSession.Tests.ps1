@@ -66,6 +66,12 @@ Describe 'Open-ClaudeSession' {
             (Open-Test $f -Arguments @{ PrintOnly = $true }).Account | Should -Be 'B'
         }
 
+        It 'auto picks an account with no use in the window over a busier one' {
+            $f = New-Fixture @(@{ Name = 'A'; Percent = '40' }, @{ Name = 'B'; IdleUsage = $true })
+
+            (Open-Test $f -Arguments @{ PrintOnly = $true }).Account | Should -Be 'B'
+        }
+
         It 'auto discards an account with unknown usage even if the other is busier' {
             $f = New-Fixture @(@{ Name = 'A'; UnknownUsage = $true }, @{ Name = 'B'; Percent = '70' })
 
