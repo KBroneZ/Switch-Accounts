@@ -152,6 +152,7 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
             {dot} {s.worker ? `[${s.worker}] ` : ''}
             {s.place}
             {s.isSelf ? ' (esta)' : ''}
+            {s.quotaAccount ? <Text color={C.warn}>{` · usa la cuota de ${s.quotaAccount}`}</Text> : null}
           </Text>
           <Text color={C.dim}>{meta}</Text>
         </Box>

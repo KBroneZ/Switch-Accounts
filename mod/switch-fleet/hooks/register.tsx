@@ -29,7 +29,7 @@ const IDLE_BEAT_MS = 60_000
 const REFRESH_TIMEOUT_MS = 180_000
 const LOCK_MS = 4 * 60_000
 
-const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-4' })
+const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-5' })
 /** The Deck's notes and two-press controls (the desktop pane). */
 const deck = atom({ plugin: 'switch-fleet', key: 'deck' } as const, EMPTY_DECK, { shape: 'deck-2' })
 /** Alerts already shown, kept across sessions so each one is toasted once. */
@@ -520,6 +520,7 @@ export const register: Register = (on, options) => {
               {dot} {s.worker ? `[${s.worker}] ` : ''}
               {s.place}
               {s.isSelf ? ' (esta)' : ''}
+              {s.quotaAccount ? <Text color={C.warn}>{` · cuota de ${s.quotaAccount}`}</Text> : null}
             </Text>
             <Box flexShrink={0}>
               <Text color={C.dim}>{meta}</Text>

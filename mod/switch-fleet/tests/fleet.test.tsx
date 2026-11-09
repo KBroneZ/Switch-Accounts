@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Beat, FleetView } from '../types'
-import { buildFleet, fmtSpan, healthChanges, maskSecrets, parseBeat, parsePipeline, parseSnapshot, statusText, toolDetail } from '../hooks/core'
+import { buildFleet, quotaAccountOf, fmtSpan, healthChanges, maskSecrets, parseBeat, parsePipeline, parseSnapshot, statusText, toolDetail } from '../hooks/core'
 
 const NOW = Date.parse('2030-01-01T12:00:00Z')
 
@@ -174,7 +174,7 @@ test('the pane draws each account and its sessions, on every surface', async ($,
   const built = buildFleet(parseSnapshot(snapshotText), [beat({})], NOW, null)
   const view: FleetView = { ...built, hub: null, pipeline: null, isRefreshing: false, error: null }
   on('clock.now', () => ({ value: NOW }))
-  on('state.get', () => ({ value: { value: { shape: 'fleet-4', value: view }, version: 1 } }))
+  on('state.get', () => ({ value: { value: { shape: 'fleet-5', value: view }, version: 1 } }))
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -217,7 +217,7 @@ describe('pipeline', () => {
     const built = buildFleet(parseSnapshot(snapshotText), [], NOW, null)
     const view: FleetView = { ...built, hub: null, pipeline: parsePipeline(JSON.stringify(doc), NOW), isRefreshing: false, error: null }
     on('clock.now', () => ({ value: NOW }))
-    on('state.get', () => ({ value: { value: { shape: 'fleet-4', value: view }, version: 1 } }))
+    on('state.get', () => ({ value: { value: { shape: 'fleet-5', value: view }, version: 1 } }))
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ ...PANE, surface })
       expect(await ui.find({ type: 'Text', text: /esperando reinicio/ })).toBeDefined()
@@ -225,5 +225,32 @@ describe('pipeline', () => {
       expect(await ui.find({ key: 'open-B' })).toBeUndefined()
       await ui.unmount()
     }
+  })
+})
+
+describe('quota account', () => {
+  const snap = parseSnapshot(snapshotText)!
+  const weekB = '2030-01-08T01:00:00.000Z'
+  const withB = parseSnapshot(JSON.stringify({ ...JSON.parse(snapshotText), accounts: JSON.parse(snapshotText).accounts.map((a: { name: string; usage: object }) => (a.name === 'B' ? { ...a, usage: { ...a.usage, weeklyResetsAt: '2030-01-08T01:00:00Z' } } : a)) }))!
+  const limits = (weeklyResetsAt: string) => ({ fiveHour: 22, fiveHourResetsAt: '2030-01-01T14:00:00Z', weekly: 3, weeklyResetsAt })
+
+  test('names the account by its weekly reset, or nothing when unknown or not unique', () => {
+    expect(quotaAccountOf(beat({ limits: limits(weekB) }), withB.accounts)).toBe('B')
+    expect(quotaAccountOf(beat({ limits: limits('2030-01-05T09:00:00.000Z') }), withB.accounts)).toBe('A')
+    expect(quotaAccountOf(beat({ limits: null }), withB.accounts)).toBeNull()
+    expect(quotaAccountOf(beat({ limits: limits('2030-02-01T00:00:00Z') }), withB.accounts)).toBeNull()
+    expect(snap.accounts.length).toBe(2)
+  })
+
+  test('a session of A that spends B gives its live use to B and is marked, A keeps its own', () => {
+    const b = beat({ limits: limits(weekB), limitsAt: NOW - 1_000 })
+    const fleet = buildFleet(withB, [b], NOW, null)
+    const a = fleet.accounts.find(x => x.name === 'A')!
+    const bAcc = fleet.accounts.find(x => x.name === 'B')!
+    expect(a.fiveHour.pct).toBe(44)
+    expect(a.fiveHour.isLive).toBe(false)
+    expect(bAcc.fiveHour.pct).toBe(22)
+    expect(bAcc.fiveHour.isLive).toBe(true)
+    expect(a.sessions[0]?.quotaAccount).toBe('B')
   })
 })

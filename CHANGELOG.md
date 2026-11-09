@@ -3,6 +3,7 @@
 ## 0.5.0 — unreleased
 
 - Fleet Deck (switch-fleet 0.4.0): in the desktop app and the editor, `/fleet` draws SVG gauges per account (use, pace projection, cap tick), a lane per hub worker (phase, generation, context against the hand-over threshold, last answer) and, in hub sessions, controls to message, stop and open workers through the same checks as the `fleet_*` tools. The terminal keeps the text pane.
+- Fleet reads whose quota a session spends from its live limits (the weekly reset, fixed per account): a session of one config dir signed in with another account (the desktop app, say) gives its live use to that account and is marked `cuota de B`, instead of overwriting its config dir's account (switch-fleet 0.4.1).
 
 ## 0.4.0 — unreleased
 
