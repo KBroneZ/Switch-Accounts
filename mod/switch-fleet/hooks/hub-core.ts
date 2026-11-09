@@ -206,17 +206,20 @@ export function inboxPrompt(messages: InboxMessage[]): string {
 }
 
 /** One line per account and session, short enough for the hub to read every few minutes. */
+type StatusMeter = { pct: number | null; cap: number | null; resetsAt: string | null }
+
+/** `30%/100 (reinicio …)`, or `?` when the use is unknown. */
+const meterText = (m: StatusMeter) => (m.pct === null ? '?' : `${Math.round(m.pct)}%/${m.cap ?? '-'}${m.resetsAt ? ` (reinicio ${m.resetsAt})` : ''}`)
+
 export function compactStatus(
-  accounts: { name: string; health: string; reason: string | null; fiveHour: { pct: number | null; cap: number | null; resetsAt: string | null }; weekly: { pct: number | null } }[],
+  accounts: { name: string; plan?: string | null; health: string; reason: string | null; fiveHour: StatusMeter; weekly: StatusMeter }[],
   beats: Beat[],
   accountOf: (configDir: string) => string,
   now: number,
 ): string {
   const lines: string[] = []
   for (const a of accounts) {
-    const five = a.fiveHour.pct === null ? '?' : `${Math.round(a.fiveHour.pct)}%/${a.fiveHour.cap ?? '-'}`
-    const reset = a.fiveHour.resetsAt ? ` reinicio ${a.fiveHour.resetsAt}` : ''
-    lines.push(`cuenta ${a.name}: ${a.health}${a.reason ? ` (${a.reason})` : ''} · 5h ${five} · semana ${a.weekly.pct === null ? '?' : `${Math.round(a.weekly.pct)}%`}${reset}`)
+    lines.push(`cuenta ${a.name}${a.plan ? ` (${a.plan})` : ''}: ${a.health}${a.reason ? ` (${a.reason})` : ''} · 5h ${meterText(a.fiveHour)} · semana ${meterText(a.weekly)}`)
   }
   for (const b of beats) {
     const age = Math.round((now - b.updatedAt) / 1000)
@@ -235,4 +238,17 @@ export function compactStatus(
     lines.push(parts.join(' · '))
   }
   return lines.join('\n')
+}
+
+/**
+ * What the hub's model reads beside the first prompt of a hub session: use the fleet-director
+ * skill to share the work out. Null for workers, other accounts, later turns, commands and meta prompts.
+ */
+export function directorNote(at: { isHub: boolean; worker: string | null; turns: number; isEnabled: boolean; isCommand: boolean; isMeta: boolean; hubAccount: string }): string | null {
+  if (!at.isEnabled || !at.isHub || at.worker !== null || at.turns > 0 || at.isCommand || at.isMeta) return null
+  return [
+    `Fleet: esta es una sesión hub (cuenta ${at.hubAccount}).`,
+    'Si la petición se puede repartir en tareas, carga antes la skill `fleet-director`: reparte el trabajo entre las cuentas de Claude, ChatGPT y Gemini según el nivel, el effort y la prioridad, y enseña la tabla al usuario para que la apruebe antes de lanzar nada.',
+    'Si es trivial (una pregunta, un cambio pequeño), hazla directamente sin repartir.',
+  ].join(' ')
 }

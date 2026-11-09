@@ -95,6 +95,13 @@ Flightdeck vigila **una** sesión. Fleet Control vigila **la flota**.
 - Relevo al 40 % de contexto en la misma cuenta; espera al reinicio de su propia cuenta al llegar al
   límite y sigue sola. Buzón local para hablar con los workers.
 
+### Fase 8 — Director de la flota (añadida 2026-11-09)
+- Al empezar una sesión hub, el director reparte el trabajo: cada tarea con su nivel, effort,
+  prioridad y quién la hace (el hub, un worker de otra cuenta Claude, ChatGPT o Gemini), y el usuario
+  aprueba el plan antes de lanzar nada.
+- En el tope de una cuenta Claude la tarea pasa a otro **proveedor** del mismo nivel o espera al
+  reinicio de 5 h; nunca a la otra cuenta Claude.
+
 ## Estado
 
 | Fase | Estado |
@@ -105,4 +112,5 @@ Flightdeck vigila **una** sesión. Fleet Control vigila **la flota**.
 | 4 | hecha: historial de 8 días, ritmo y hora de tope por ventana, avisos únicos |
 | 5 | hecha: botón abrir sesión por cuenta, caja PIPELINE |
 | 7 | hecha: herramientas `fleet_*`, relevo, espera al reinicio, buzón |
+| 8 | fase 1 hecha: skill `fleet-director` (reparto por nivel entre Claude, ChatGPT y Gemini, con aprobación); ChatGPT y Gemini solo leen. Falta fase 2: workers de Codex y Gemini que escriben código |
 | 6 | hecha en parte: informe diario y marketplace del plugin. Falta: lanzadores tmux/iTerm (Open-ClaudeSession solo conoce Windows Terminal) |

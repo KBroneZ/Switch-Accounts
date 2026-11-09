@@ -1,6 +1,6 @@
 {
   "name": "switch-fleet",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Fleet: a live pane of every Claude Code account you own and every session on each, plus a hub mode: a hub account opens workers on your other accounts, which hand over at a context threshold and wait for their own account's reset.",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -45,6 +45,12 @@
       "description": "agy.exe, asked for Gemini's usage (/usage, no model turn) every 10 minutes. Empty: %LOCALAPPDATA%/agy/bin/agy.exe. Not installed: no Gemini card.",
       "type": "string",
       "default": ""
+    },
+    "director": {
+      "title": "Director note in hub sessions",
+      "description": "The first prompt of a hub session tells Claude to share the work out with the fleet-director skill (Claude accounts, ChatGPT, Gemini) and show the plan for approval.",
+      "type": "boolean",
+      "default": true
     }
   },
   "license": "MIT",

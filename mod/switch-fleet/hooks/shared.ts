@@ -17,6 +17,8 @@ export type Config = {
   hubAccount: string
   /** Antigravity's CLI, asked for Gemini's usage. Empty: %LOCALAPPDATA%/agy/bin/agy.exe. */
   agyPath: string
+  /** The first prompt of a hub session carries a note to use the fleet-director skill. */
+  director: boolean
 }
 
 export function parseConfig(options: Record<string, unknown>): Config {
@@ -31,6 +33,7 @@ export function parseConfig(options: Record<string, unknown>): Config {
     rolloverPercent: Math.min(90, Math.max(10, rollover)),
     hubAccount: hub,
     agyPath: typeof options.agyPath === 'string' ? options.agyPath.trim() : '',
+    director: options.director !== false,
   }
 }
 
@@ -87,6 +90,8 @@ export const S: {
   hasTimers: boolean
   /** openOnStart was acted on in this load (at start under the REPL, at the first turn elsewhere). */
   hasOpenedOnStart: boolean
+  /** The director note went out with a prompt of this load. */
+  hasDirectorNote: boolean
   lastError: string | null
   history: History
   historyMtime: number
@@ -102,6 +107,7 @@ export const S: {
   isRefreshing: false,
   hasTimers: false,
   hasOpenedOnStart: false,
+  hasDirectorNote: false,
   lastError: null,
   history: new Map(),
   historyMtime: -1,

@@ -4,7 +4,7 @@
 // The hub never moves a worker to another account to get around a limit.
 import type { EngineInterface } from 'claude-code'
 
-import type { AccountView, Beat } from '../types'
+import type { AccountView, Beat, ProviderView } from '../types'
 import { isShown, normPath, shorten } from './core'
 import {
   ABSOLUTE_PATH,
@@ -27,6 +27,7 @@ import {
   workerStartPrompt,
 } from './hub-core'
 import type { Priority, WorkerRecord } from './hub-core'
+import { providerLines } from './providers'
 import { runScript, S } from './shared'
 
 const OPEN_TIMEOUT_MS = 180_000
@@ -47,7 +48,7 @@ export async function registerHubTools($: EngineInterface) {
   await $.tool.register({
     name: 'fleet_status',
     description:
-      'Fleet hub: one line per account (health, 5-hour and weekly use, reset) and per live session or worker (state, tool, context, hand-over, wait, last reply). Cheap; call it instead of reading files.',
+      'Fleet hub: one line per Claude account (plan, health, 5-hour and weekly use against its caps, resets), per live session or worker (state, tool, context, hand-over, wait, last reply), and per other AI subscription the user has (ChatGPT via Codex, Gemini via Antigravity: windows, resets, reading age). Cheap; call it instead of reading files.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   })
   await $.tool.register({
@@ -153,7 +154,7 @@ async function queueMail($: EngineInterface, name: string, text: string, now: nu
   return next.seq
 }
 
-export async function hubToolCall($: EngineInterface, tool: HubTool, input: Record<string, unknown>, accounts: AccountView[], beats: Beat[]): Promise<string> {
+export async function hubToolCall($: EngineInterface, tool: HubTool, input: Record<string, unknown>, accounts: AccountView[], beats: Beat[], providers: ProviderView[] = []): Promise<string> {
   if (!S.paths) return 'Fleet aún no ha arrancado en esta sesión.'
   if (!isHub()) return `Solo el hub (cuenta ${S.cfg.hubAccount}) usa estas herramientas; esta sesión es de la cuenta ${S.account ?? 'desconocida'}.`
   const now = await $.clock.now()
@@ -168,7 +169,8 @@ export async function hubToolCall($: EngineInterface, tool: HubTool, input: Reco
       // no snapshot yet
     }
     const shown = beats.filter(b => isShown(b, now))
-    return compactStatus(accounts, shown, dir => byDir.get(normPath(dir)) ?? dir, now) || 'Sin cuentas ni sesiones todavía.'
+    const lines = [compactStatus(accounts, shown, dir => byDir.get(normPath(dir)) ?? dir, now), ...providerLines(providers, now)].filter(Boolean)
+    return lines.join('\n') || 'Sin cuentas ni sesiones todavía.'
   }
   const name = field(input, 'worker')
   if (!WORKER_NAME.test(name)) return 'Nombre de worker no válido: 1-30 letras, dígitos, . _ -'

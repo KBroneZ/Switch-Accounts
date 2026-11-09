@@ -1,0 +1,189 @@
+{
+  "schema": 1,
+  "about": "Routing table for the fleet-director skill. Copy this file to ~/.claude-switch/director.json to change it; that copy replaces these defaults.",
+  "executors": {
+    "claude-hub": {
+      "provider": "anthropic",
+      "what": "This hub session itself (hub account)",
+      "canWrite": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    "claude-worker": {
+      "provider": "anthropic",
+      "what": "A worker session on another Claude account, opened with fleet_open_worker",
+      "canWrite": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    "chatgpt": {
+      "provider": "openai",
+      "what": "ChatGPT through Codex CLI (ask-chatgpt skill)",
+      "canWrite": false,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ]
+    },
+    "gemini": {
+      "provider": "google",
+      "what": "Antigravity CLI, read-only (ask-gemini.ps1)",
+      "canWrite": false,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ]
+    }
+  },
+  "levels": {
+    "alto": {
+      "for": "architecture and design decisions, hard bugs, security, critical or wide code changes, final reviews",
+      "options": [
+        {
+          "executor": "claude-hub",
+          "model": "opus",
+          "effort": "high"
+        },
+        {
+          "executor": "claude-worker",
+          "model": "opus",
+          "effort": "high"
+        },
+        {
+          "executor": "chatgpt",
+          "model": "gpt-6-luna",
+          "effort": "max"
+        },
+        {
+          "executor": "gemini",
+          "model": "claude-opus-4-6-thinking",
+          "effort": "high"
+        }
+      ]
+    },
+    "medio": {
+      "for": "ordinary implementation, tests, refactors, code reviews, web research, documentation",
+      "options": [
+        {
+          "executor": "claude-worker",
+          "model": "sonnet",
+          "effort": "medium"
+        },
+        {
+          "executor": "claude-hub",
+          "model": "sonnet",
+          "effort": "medium"
+        },
+        {
+          "executor": "chatgpt",
+          "model": "gpt-6-luna",
+          "effort": "high"
+        },
+        {
+          "executor": "gemini",
+          "model": "claude-sonnet-4-6",
+          "effort": "medium"
+        },
+        {
+          "executor": "gemini",
+          "model": "gemini-3.8-flash-high"
+        }
+      ]
+    },
+    "bajo": {
+      "for": "mechanical edits, summaries, translations, drafts, reading long logs or files, quick checks",
+      "options": [
+        {
+          "executor": "gemini",
+          "model": "gemini-3.8-flash-medium"
+        },
+        {
+          "executor": "claude-worker",
+          "model": "haiku",
+          "effort": "low"
+        },
+        {
+          "executor": "chatgpt",
+          "model": "gpt-6-luna",
+          "effort": "medium"
+        },
+        {
+          "executor": "gemini",
+          "model": "gpt-oss-120b-medium"
+        }
+      ]
+    }
+  },
+  "taskTypes": [
+    {
+      "type": "web research, market, prices, current rules",
+      "level": "medio",
+      "prefer": "chatgpt",
+      "chatgptMode": "research"
+    },
+    {
+      "type": "second opinion or adversarial review of code, a plan or a decision",
+      "level": "alto",
+      "prefer": "chatgpt",
+      "chatgptMode": "review"
+    },
+    {
+      "type": "drafts, copy, listings, translations",
+      "level": "bajo",
+      "prefer": "chatgpt",
+      "chatgptMode": "copy"
+    },
+    {
+      "type": "summarise or search long logs, files or transcripts",
+      "level": "bajo",
+      "prefer": "gemini"
+    },
+    {
+      "type": "design or architecture decision",
+      "level": "alto",
+      "prefer": "claude-hub"
+    },
+    {
+      "type": "implement a feature or fix in a repository",
+      "level": "medio",
+      "prefer": "claude-worker"
+    },
+    {
+      "type": "hard bug, security-sensitive change",
+      "level": "alto",
+      "prefer": "claude-hub"
+    },
+    {
+      "type": "mechanical change across many files",
+      "level": "bajo",
+      "prefer": "claude-worker"
+    }
+  ],
+  "effortByComplexity": {
+    "trivial": "low",
+    "normal": "medium",
+    "difícil": "high",
+    "crítico": "max"
+  },
+  "atCap": {
+    "fiveHour": "Use another provider's option of the same level. If none can do the task at that level, wait for the five-hour reset.",
+    "weekly": "Use another provider's option of the same level. A weekly cap is never waited out; if no option is left, say so and leave the task pending.",
+    "never": "Never move a task to another Claude account because its account is at a cap: once a task's Claude option is skipped for a cap, every option with provider anthropic is skipped for it."
+  }
+}
