@@ -248,8 +248,8 @@ with `claude plugin test mod/switch-fleet`.
 **Forecast.** `-List` appends each account's 5-hour and weekly use to
 `~/.claude-switch/usage-history.jsonl` (8 days kept). The pane fits a straight line through the
 readings of the current window (the last 90 minutes for 5 hours, the last day for the week, plus
-the sessions' own readings) and shows the pace: `ritmo 12%/h → tope ~16:40` when the cap comes
-before the reset, `ritmo 5%/h → ~70% al reinicio` otherwise. It needs two readings ten minutes
+the sessions' own readings) and shows the pace: `pace 12%/h → cap ~16:40` when the cap comes
+before the reset, `pace 5%/h → ~70% at reset` otherwise. It needs two readings ten minutes
 apart; with less it shows nothing rather than guess.
 
 **Alerts.** A toast, once across sessions: a 5-hour cap the pace reaches within 45 minutes, a
@@ -261,7 +261,7 @@ change it) after every cycle: repository, cycle, state (running, waiting for a r
 stopped), each role's task and outcome, and the retry time. The pane draws it as a PIPELINE box
 while it is less than 12 hours old.
 
-**Open from the pane.** A ready account's card has `+ abrir sesión en <name> aquí`: it runs
+**Open from the pane.** A ready account's card has `+ open session on <name> here`: it runs
 `open-session.ps1 -Account <name> -Directory <this session's folder>` with the account's
 defaults, so the same cap and readiness checks apply. Accounts at a cap or logged out have no
 button: the pane never offers another account to get around a limit.
@@ -332,16 +332,16 @@ session starts.
   far, a fainter stretch to where the recent pace takes it by the reset, and a tick at the cap.
   Login, plan, reset times, the forecast line and the open-session button stay as they were.
 - **Tasks:** each hub worker is a task card, titled by the first line of its brief and ranked
-  open first, then by priority (`alta`, `media`, `baja`; set when the worker opens, with the
+  open first, then by priority (`high`, `medium`, `low`; the older `alta`, `media`, `baja` are still accepted; set when the worker opens, with the
   `priority` field of `fleet_open_worker` or the form, and changed from the card). A card shows
   the worker, account, model, hand-over generation, phase (working with its tool, waiting for its
   account's reset, writing its hand-over, successor pending, finished, stopped), a context bar
   with a tick at `rolloverPercent` and its last answer.
 - **Sessions:** every live session with its account, folder, what it does now, model, context
   and cost. A session that spends another account's quota (read from its weekly reset) is marked
-  `usa la cuota de B`.
+  `uses quota of B`.
 - **Controls, in sessions of the hub account only:** a field to message each worker, its
-  priority, a stop button that asks for a second press, and `+ nueva tarea` (account, priority,
+  priority, a stop button that asks for a second press, and `+ new task` (account, priority,
   name, folder, brief, model, effort). They go through the same checks as the `fleet_*` tools: never the hub account, never
   `auto`, only an account that is ready. Sessions of other accounts see the lanes without controls.
 
@@ -371,15 +371,15 @@ through that link. Run the installer again after pulling a new version.
 ### The `fleet-director` skill: who does what
 
 In a hub session the director plans the work before anyone starts it. It splits the request into
-tasks and gives each one a level (`alto`, `medio`, `bajo`), an effort, a priority and an executor:
+tasks and gives each one a level (`high`, `medium`, `low`), an effort, a priority and an executor:
 the hub session itself, a worker on another of your Claude accounts, ChatGPT (through Codex, the
 `ask-chatgpt` skill) or Gemini (through Antigravity's CLI). It reads every subscription's state
 from `fleet_status`, shows the plan as a table and launches nothing until you approve it.
 
 - **Routing table.** `skills/fleet-director/director.default.json`: the executors, the options for
   each level in order of preference (Claude Opus, GPT-6 luna and Claude Opus through Antigravity
-  for `alto`; Sonnet, GPT-6 luna high, Sonnet or Gemini Flash high through Antigravity for `medio`;
-  Gemini Flash, Haiku, GPT-OSS for `bajo`), task types (web research and second opinions go to
+  for `high`; Sonnet, GPT-6 luna high, Sonnet or Gemini Flash high through Antigravity for `medium`;
+  Gemini Flash, Haiku, GPT-OSS for `low`), task types (web research and second opinions go to
   ChatGPT, long logs and summaries to Gemini, design and hard bugs stay with Claude) and effort by
   complexity. Copy it to `~/.claude-switch/director.json` to change it.
 - **At a cap.** A task planned for a Claude account at its cap goes to another provider's option
@@ -388,14 +388,14 @@ from `fleet_status`, shows the plan as a table and launches nothing until you ap
 - **Read-only for now.** ChatGPT and Gemini answer questions and review; they do not change the
   repository. `scripts/ask-gemini.ps1` runs `agy -p` in plan mode with its sandbox on (Gemini reads
   the project folder, its writes and commands are refused), blocks prompts that look like they carry
-  a secret, and saves the answer marked `estado: SIN VERIFICAR` for Claude to check.
+  a secret, and saves the answer marked `status: UNVERIFIED` for Claude to check.
 - **Limits.** `skills/fleet-director/LIMITS.md` tells the hub what each executor can and cannot do
   (a worker knows only its brief and waits on permission prompts in its tab; ChatGPT cannot read the
   repository on this machine; Gemini cannot run commands and costs ~50 K tokens a call), what only you
   can do (sign-ins, trusting folders, merges), and what every brief must carry to get finished. The
-  plan lists the steps that are yours under "lo que tienes que hacer tú".
+  plan lists the steps that are yours under "What you need to do".
 - **Starting it.** Add to a project's `CLAUDE.md`:
-  `- Al empezar una conversación en la cuenta hub, usa la skill fleet-director para repartir el trabajo antes de empezar.`
+  `- At the start of a conversation on the hub account, use the fleet-director skill to share out the work before starting.`
   The `switch-fleet` mod also adds a note to the first prompt of every hub session (option
   `director`, on by default), so it starts even where the line is missing. Trivial requests are
   done at once, without a plan.

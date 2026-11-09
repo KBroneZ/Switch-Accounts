@@ -1,6 +1,6 @@
 ---
 name: fleet-director
-description: The hub's director. Splits the user's request into tasks and decides who does each one (this hub session, a worker on another of the user's Claude accounts, ChatGPT through Codex or Gemini through Antigravity), with which model, effort and priority, by the level each task needs and what every subscription has left. Shows the plan for approval, then dispatches it. Use at the start of a hub session, when the switch-fleet note asks for it, or for /fleet-director, "reparte el trabajo", "¿quién hace qué?", "organiza las tareas entre las IAs", "plan de la flota".
+description: The hub's director. Splits the user's request into tasks and decides who does each one (this hub session, a worker on another of the user's Claude accounts, ChatGPT through Codex or Gemini through Antigravity), with which model, effort and priority, by the level each task needs and what every subscription has left. Shows the plan for approval, then dispatches it. Use at the start of a hub session, when the switch-fleet note asks for it, or for /fleet-director, "share out the work", "who does what", "plan the fleet", "reparte el trabajo", "¿quién hace qué?", "organiza las tareas entre las IAs".
 ---
 
 # fleet-director
@@ -9,8 +9,10 @@ You are the hub's director. You plan who does what; the user approves; then you 
 follow up. You never pass work around a limit on a Claude account (see Rules).
 
 Routing table: `~/.claude-switch/director.json` if it exists, else `<skill-dir>/director.default.json`.
-Read it once per session. It defines the executors, the three levels (`alto`, `medio`, `bajo`)
+Read it once per session. It defines the executors, the three levels (`high`, `medium`, `low`)
 with their options in order of preference, task types, effort by complexity and what to do at a cap.
+A `director.json` copied from an older default may name the levels `alto`/`medio`/`bajo` and the
+complexities `difícil`/`crítico`: read them as `high`/`medium`/`low` and `hard`/`critical`.
 
 Limits: `<skill-dir>/LIMITS.md` says what each executor can and cannot do, what only the user can
 do, and what a brief must carry so a task gets finished. Read it once per session, before the
@@ -30,8 +32,8 @@ first plan, and plan within it: never ask an executor for something it lists as 
    workers, and the other subscriptions (ChatGPT, Gemini) with their windows and resets. If the tool
    is not there, run `pwsh -NoProfile -File ~/.claude/skills/switch-account/scripts/open-session.ps1 -List`
    and treat ChatGPT and Gemini as unknown.
-2. **Split the request into tasks.** For each: a short title, its type, level (`alto`/`medio`/`bajo`),
-   complexity → effort (`effortByComplexity`), priority (`alta`/`media`/`baja`), whether it writes
+2. **Split the request into tasks.** For each: a short title, its type, level (`high`/`medium`/`low`),
+   complexity → effort (`effortByComplexity`), priority (`high`/`medium`/`low`), whether it writes
    to the repository, and what it needs from other tasks.
    **Check each task can be finished** against `LIMITS.md`: an executor that can do it, the
    information it needs (or where to get it), a way to check the result. A step only the user can
@@ -57,10 +59,10 @@ first plan, and plan within it: never ask an executor for something it lists as 
    table. For an `agy` model whose id already ends in `-low`, `-medium` or `-high`, leave
    `-Effort` out: the id carries it.
 4. **Show the plan** in one table and ask for approval with `AskUserQuestion` (options: launch as
-   is, change something). Columns: `#`, tarea, nivel, quién (executor and account), modelo, effort,
-   prioridad, depende de, por qué. Under it, one line per task that waits or was moved off a capped
-   option, with the reset time, and a short list "lo que tienes que hacer tú" with every step only
-   the user can do. Write it in the user's language. Launch nothing before the answer.
+   is, change something). Columns: `#`, task, level, who (executor and account), model, effort,
+   priority, depends on, why. Under it, one line per task that waits or was moved off a capped
+   option, with the reset time, and a short list "What you need to do" with every step only
+   the user can do. Write the table in English. Launch nothing before the answer.
 5. **Dispatch** what was approved, independent tasks in parallel:
    - `claude-hub`: do it in this session, in priority order.
    - `claude-worker`: `fleet_open_worker` with account, worker name, directory, a complete brief,
@@ -73,8 +75,9 @@ first plan, and plan within it: never ask an executor for something it lists as 
      -Model <id> -Effort <e> -Directory <project>` (or `-PromptFile`), in the background. It runs
      read-only: Gemini can read the project folder but not change it. Exit codes: 0 saved,
      1 bad arguments, 2 blocked (looks like a secret), 3 agy failed, 5 agy not installed.
-6. **Follow up.** As results land: read each answer file (marked `estado: SIN VERIFICAR`), verify
-   its claims before using them, and mark it `VERIFICADO` or `PARCIAL`. Check workers with
+6. **Follow up.** As results land: read each answer file (marked unverified: `status: UNVERIFIED` from
+   Gemini, `estado: SIN VERIFICAR` from ask-chatgpt), verify its claims before using them, and mark
+   it verified or partial. Check workers with
    `fleet_status`; message them with `fleet_send`. Re-plan if a task fails or a cap is hit, and show
    the change before acting on it.
 7. **Report** in a few lines: what each executor did, what was verified, what is pending and why.
@@ -90,7 +93,7 @@ first plan, and plan within it: never ask an executor for something it lists as 
 - Never send secrets, credentials, customer data or employer material to ChatGPT or Gemini. Both
   scripts block secret-looking text; still read the prompt before sending it.
 - Never pass `--dangerously-skip-permissions` or any flag that skips permission checks, to any CLI.
-- Keep spending sensible: `bajo` tasks never use `alto` models; do not ask other models what you
+- Keep spending sensible: `low` tasks never use `high` models; do not ask other models what you
   can answer yourself in a sentence.
 
 ## Starting it from a project's rules
@@ -98,7 +101,7 @@ first plan, and plan within it: never ask an executor for something it lists as 
 Add this line to the project's `CLAUDE.md` so every conversation there starts with the director:
 
 ```markdown
-- Al empezar una conversación en la cuenta hub, usa la skill `fleet-director` para repartir el trabajo antes de empezar.
+- At the start of a conversation on the hub account, use the `fleet-director` skill to share out the work before starting.
 ```
 
 The `switch-fleet` mod adds the same note to the first prompt of every hub session (option

@@ -52,7 +52,7 @@
     }
   },
   "levels": {
-    "alto": {
+    "high": {
       "for": "architecture and design decisions, hard bugs, security, critical or wide code changes, final reviews",
       "options": [
         {
@@ -77,7 +77,7 @@
         }
       ]
     },
-    "medio": {
+    "medium": {
       "for": "ordinary implementation, tests, refactors, code reviews, web research, documentation",
       "options": [
         {
@@ -106,7 +106,7 @@
         }
       ]
     },
-    "bajo": {
+    "low": {
       "for": "mechanical edits, summaries, translations, drafts, reading long logs or files, quick checks",
       "options": [
         {
@@ -133,53 +133,53 @@
   "taskTypes": [
     {
       "type": "web research, market, prices, current rules",
-      "level": "medio",
+      "level": "medium",
       "prefer": "chatgpt",
       "chatgptMode": "research"
     },
     {
       "type": "second opinion or adversarial review of code, a plan or a decision",
-      "level": "alto",
+      "level": "high",
       "prefer": "chatgpt",
       "chatgptMode": "review"
     },
     {
       "type": "drafts, copy, listings, translations",
-      "level": "bajo",
+      "level": "low",
       "prefer": "chatgpt",
       "chatgptMode": "copy"
     },
     {
       "type": "summarise or search long logs, files or transcripts",
-      "level": "bajo",
+      "level": "low",
       "prefer": "gemini"
     },
     {
       "type": "design or architecture decision",
-      "level": "alto",
+      "level": "high",
       "prefer": "claude-hub"
     },
     {
       "type": "implement a feature or fix in a repository",
-      "level": "medio",
+      "level": "medium",
       "prefer": "claude-worker"
     },
     {
       "type": "hard bug, security-sensitive change",
-      "level": "alto",
+      "level": "high",
       "prefer": "claude-hub"
     },
     {
       "type": "mechanical change across many files",
-      "level": "bajo",
+      "level": "low",
       "prefer": "claude-worker"
     }
   ],
   "effortByComplexity": {
     "trivial": "low",
     "normal": "medium",
-    "difícil": "high",
-    "crítico": "max"
+    "hard": "high",
+    "critical": "max"
   },
   "atCap": {
     "fiveHour": "Use another provider's option of the same level. If none can do the task at that level, wait for the five-hour reset.",

@@ -6,10 +6,10 @@ import type { EngineInterface } from 'claude-code'
 import type { Beat } from '../types'
 import { maskSecrets, shorten } from './core'
 import {
-  DONE_MARK,
-  HANDOVER_MARK,
   handoverPath,
   inboxPrompt,
+  isDoneReply,
+  isHandoverReply,
   limitStop,
   parseInbox,
   parseWorker,
@@ -18,7 +18,6 @@ import {
   resumeAt,
   rolloverPrompt,
   shouldRollover,
-  startsWithMark,
   WORKER_NAME,
 } from './hub-core'
 import { S, setBeat } from './shared'
@@ -63,7 +62,7 @@ export async function workerTurnDone($: EngineInterface, reply: string) {
   const now = await $.clock.now()
   const firstLine = reply.trim().split(/\r?\n/)[0] ?? ''
   const lastReply = firstLine ? shorten(maskSecrets(firstLine), 140) : beat.lastReply
-  if (startsWithMark(reply, DONE_MARK)) {
+  if (isDoneReply(reply)) {
     // Done: no hand-over, no resume. It still takes the hub's mail, which may bring more work.
     await setBeat($, { lastReply, finished: true, waitingUntil: null }, true)
     return
@@ -78,7 +77,7 @@ export async function workerTurnDone($: EngineInterface, reply: string) {
     // Ready only once the hand-over is written: its file is newer than the request, or the
     // worker said so in the words it was asked to use.
     const stat = await $.fs.stat(handoverPath(S.paths.workers, beat.worker)).catch(() => null)
-    const written = (stat !== null && beat.rolloverAt !== null && stat.mtimeMs >= beat.rolloverAt) || startsWithMark(reply, HANDOVER_MARK)
+    const written = (stat !== null && beat.rolloverAt !== null && stat.mtimeMs >= beat.rolloverAt) || isHandoverReply(reply)
     await setBeat($, written ? { lastReply, rollover: 'ready' } : { lastReply }, true)
     return
   }
@@ -133,7 +132,7 @@ async function submit($: EngineInterface, text: string): Promise<boolean> {
     await $.prompt.submit({ text })
     return true
   } catch (err) {
-    S.lastError = shorten(`Fleet worker: no pude enviar el aviso (${String(err)})`, 200)
+    S.lastError = shorten(`Fleet worker: could not send the prompt (${String(err)})`, 200)
     return false
   } finally {
     W.isSubmitting = false

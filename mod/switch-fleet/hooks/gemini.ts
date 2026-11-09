@@ -30,7 +30,7 @@ async function readKept($: EngineInterface, path: string): Promise<Kept | null> 
 /** A failure as one plain line for the card: no control characters, no token-looking values. */
 export function failureNote(exitCode: number | null, output: string): string {
   const clean = maskSecrets(output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/[\x00-\x1f\x7f]+/g, ' ').trim())
-  return shorten(`agy /usage falló (${exitCode ?? '?'}): ${clean || 'sin respuesta'}`, 120)
+  return shorten(`agy /usage failed (${exitCode ?? '?'}): ${clean || 'no answer'}`, 120)
 }
 
 /** The card from the kept answer, with the last failure when it came after it; nothing before a first answer. */
@@ -70,7 +70,7 @@ export async function maybeAskGemini($: EngineInterface, now: number): Promise<v
       }
       note = failureNote(r.exitCode, r.stderr || r.stdout)
     } catch (err) {
-      note = failureNote(null, `no pude ejecutar agy: ${String(err)}`)
+      note = failureNote(null, `could not run agy: ${String(err)}`)
     }
     await $.fs.write(paths.geminiError, note)
   } finally {

@@ -6,7 +6,7 @@
     cannot write files or run commands that change anything. Without -Directory it runs in an empty
     folder and sees only the prompt. A -Directory that holds secret-looking files (.env, keys,
     credentials) is refused: point it at a subfolder or put what it needs in the prompt.
-    The answer goes to -Out with a header marking it unverified. Uses the user's own Antigravity
+    The answer goes to -Out with a header marking it unverified (status: UNVERIFIED). Uses the user's own Antigravity
     sign-in and Google AI plan quota.
 
     Exit codes: 0 saved, 1 bad arguments, 2 blocked (a secret-looking prompt or folder),
@@ -80,30 +80,30 @@ function ConvertFrom-AgyOutput([string] $Text) {
     $null
 }
 
-if (-not $Prompt -and -not $PromptFile) { Stop-With 1 'Falta -Prompt o -PromptFile.' }
-if ($Prompt -and $PromptFile) { Stop-With 1 'Usa -Prompt o -PromptFile, no los dos.' }
-if ($Model -notmatch '^[a-z0-9][a-z0-9.\-]{0,59}$') { Stop-With 1 "Modelo no válido: $Model (usa un id de 'agy models')." }
-if ($Effort -and $Effort -notin 'low', 'medium', 'high', 'max') { Stop-With 1 "Effort no válido: $Effort (low, medium, high o max)." }
-if ($TimeoutSeconds -lt 30 -or $TimeoutSeconds -gt 7200) { Stop-With 1 'TimeoutSeconds va de 30 a 7200.' }
-if ($Directory -and -not (Test-Path -LiteralPath $Directory -PathType Container)) { Stop-With 1 "No existe la carpeta: $Directory" }
+if (-not $Prompt -and -not $PromptFile) { Stop-With 1 'Missing -Prompt or -PromptFile.' }
+if ($Prompt -and $PromptFile) { Stop-With 1 'Use -Prompt or -PromptFile, not both.' }
+if ($Model -notmatch '^[a-z0-9][a-z0-9.\-]{0,59}$') { Stop-With 1 "Invalid model: $Model (use an id from 'agy models')." }
+if ($Effort -and $Effort -notin 'low', 'medium', 'high', 'max') { Stop-With 1 "Invalid effort: $Effort (low, medium, high or max)." }
+if ($TimeoutSeconds -lt 30 -or $TimeoutSeconds -gt 7200) { Stop-With 1 'TimeoutSeconds goes from 30 to 7200.' }
+if ($Directory -and -not (Test-Path -LiteralPath $Directory -PathType Container)) { Stop-With 1 "Folder not found: $Directory" }
 
 if ($PromptFile) {
-    if (-not (Test-Path -LiteralPath $PromptFile -PathType Leaf)) { Stop-With 1 "No existe el archivo: $PromptFile" }
+    if (-not (Test-Path -LiteralPath $PromptFile -PathType Leaf)) { Stop-With 1 "File not found: $PromptFile" }
     $Prompt = Get-Content -LiteralPath $PromptFile -Raw
 }
 foreach ($name in $SecretPatterns.Keys) {
-    if ($Prompt -match $SecretPatterns[$name]) { Stop-With 2 "Bloqueado: el prompt parece llevar un secreto ($name). Quítalo y vuelve a intentarlo." }
+    if ($Prompt -match $SecretPatterns[$name]) { Stop-With 2 "Blocked: the prompt looks like it carries a secret ($name). Remove it and try again." }
 }
 if ($Directory) {
     $found = Find-SecretFile -Root (Resolve-Path -LiteralPath $Directory).Path
-    if ($found) { Stop-With 2 "Bloqueado: la carpeta tiene un archivo que puede guardar secretos ($found). Usa una subcarpeta sin él o pon en el prompt lo que Gemini necesita." }
+    if ($found) { Stop-With 2 "Blocked: the folder holds a file that may keep secrets ($found). Use a subfolder without it, or put what Gemini needs in the prompt." }
 }
 
 if (-not $AgyPath) {
     $local = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData' 'Local' }
     $AgyPath = Join-Path $local 'agy' 'bin' 'agy.exe'
 }
-if (-not (Test-Path -LiteralPath $AgyPath -PathType Leaf)) { Stop-With 5 "No encuentro agy en $AgyPath. Instala Antigravity CLI o pasa -AgyPath." }
+if (-not (Test-Path -LiteralPath $AgyPath -PathType Leaf)) { Stop-With 5 "agy not found at $AgyPath. Install Antigravity CLI or pass -AgyPath." }
 
 $work = Join-Path ([IO.Path]::GetTempPath()) "ask-gemini-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 $workspace = Join-Path $work 'workspace'
@@ -137,7 +137,7 @@ try {
     $stderrTask = $process.StandardError.ReadToEndAsync()
     if (-not $process.WaitForExit(($TimeoutSeconds + $KillGraceSeconds) * 1000)) {
         $process.Kill($true)
-        Stop-With 3 "agy no terminó en $($TimeoutSeconds + $KillGraceSeconds) s; lo he parado."
+        Stop-With 3 "agy did not finish in $($TimeoutSeconds + $KillGraceSeconds) s; it was stopped."
     }
     $process.WaitForExit()
     $stdout = $stdoutTask.GetAwaiter().GetResult()
@@ -148,24 +148,24 @@ try {
     if ($code -ne 0 -or -not $answer -or $answer.status -ne 'SUCCESS' -or -not $answer.response) {
         $why = if ($answer -and $answer.response) { "$($answer.response)" } else { "$stderr $stdout".Trim() }
         if ($why.Length -gt 600) { $why = $why.Substring($why.Length - 600) }
-        Stop-With 3 "agy falló (código $code): $why"
+        Stop-With 3 "agy failed (exit $code): $why"
     }
 
     $outDir = Split-Path -Parent ([IO.Path]::GetFullPath($Out))
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
     $header = @(
         '---'
-        'fuente: Gemini (Antigravity CLI)'
-        "modelo: $Model"
-        "effort: $(if ($Effort) { $Effort } else { 'por defecto' })"
-        "carpeta: $(if ($Directory) { $info.WorkingDirectory } else { 'ninguna' })"
-        "fecha: $((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))"
-        'estado: SIN VERIFICAR'
+        'source: Gemini (Antigravity CLI)'
+        "model: $Model"
+        "effort: $(if ($Effort) { $Effort } else { 'default' })"
+        "folder: $(if ($Directory) { $info.WorkingDirectory } else { 'none' })"
+        "date: $((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))"
+        'status: UNVERIFIED'
         '---'
         ''
     ) -join "`n"
     Set-Content -LiteralPath $Out -Value ($header + $answer.response) -Encoding utf8NoBOM
-    Write-Output "Guardado: $Out ($Model; tokens: $($answer.usage.total_tokens))"
+    Write-Output "Saved: $Out ($Model; tokens: $($answer.usage.total_tokens))"
     exit 0
 } finally {
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }

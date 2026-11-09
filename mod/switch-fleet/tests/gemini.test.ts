@@ -69,7 +69,7 @@ test('asks Antigravity once, keeps the answer and draws the card from it', async
   expect(files.get(paths.gemini)?.text).toBe(ANSWER)
   const [card] = await readGemini($, NOW + 5_000)
   expect(card?.windows.map(w => [w.label, w.pct])).toEqual([['Gemini 7d', 20]])
-  expect(card?.readNote).toBe('consultado a Antigravity')
+  expect(card?.readNote).toBe('asked Antigravity')
   // Asked again only once the answer is GEMINI_EVERY_MS old.
   await maybeAskGemini($, NOW + GEMINI_EVERY_MS - 1)
   expect(runs).toHaveLength(1)
@@ -99,7 +99,7 @@ test('a failed run keeps the last answer, says why to every session, and waits t
   expect(files.get(paths.gemini)?.mtime).toBe(old)
   const [card] = await readGemini($, later)
   expect(card?.readAt).toBe(old)
-  expect(card?.readNote).toBe('agy /usage falló (1): boom')
+  expect(card?.readNote).toBe('agy /usage failed (1): boom')
   // The lock has expired, but the failure is recent: no other run before the interval.
   await maybeAskGemini($, later + 5 * 60_000)
   expect(runs).toHaveLength(1)
@@ -108,10 +108,10 @@ test('a failed run keeps the last answer, says why to every session, and waits t
   const $ok = fakeEngine(files, runs, clock)
   await maybeAskGemini($ok, clock.now)
   expect(runs).toHaveLength(2)
-  expect((await readGemini($ok, clock.now))[0]?.readNote).toBe('consultado a Antigravity')
+  expect((await readGemini($ok, clock.now))[0]?.readNote).toBe('asked Antigravity')
 })
 
 test('a failure note is one plain line without escapes or tokens', () => {
-  expect(failureNote(2, '\x1b[31merror\x1b[0m\r\nAuthorization: Bearer abc.def')).toBe('agy /usage falló (2): error Authorization: Bearer ***')
-  expect(failureNote(null, '')).toBe('agy /usage falló (?): sin respuesta')
+  expect(failureNote(2, '\x1b[31merror\x1b[0m\r\nAuthorization: Bearer abc.def')).toBe('agy /usage failed (2): error Authorization: Bearer ***')
+  expect(failureNote(null, '')).toBe('agy /usage failed (?): no answer')
 })

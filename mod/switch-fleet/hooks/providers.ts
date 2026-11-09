@@ -4,7 +4,7 @@
 // it is as fresh as the last Codex turn. Pure parsing here; register.tsx finds and reads the file.
 import type { ProviderView, ProviderWindow } from '../types'
 
-/** A reading older than this is drawn as stale ("leído hace …"), still with its numbers. */
+/** A reading older than this is drawn as stale ("read … ago"), still with its numbers. */
 export const STALE_MS = 6 * 3_600_000
 /** At or above this, a window is near its limit. */
 export const NEAR_PERCENT = 90
@@ -54,7 +54,7 @@ export function parseCodexRollout(text: string, now: number): ProviderView | nul
     if (windows.length === 0) continue
     const plan = typeof r.plan_type === 'string' && /^[a-z0-9_-]{1,20}$/i.test(r.plan_type) ? r.plan_type : null
     const reached = typeof r.rate_limit_reached_type === 'string' && r.rate_limit_reached_type.length > 0
-    return providerView({ id: 'chatgpt', name: 'ChatGPT', source: 'Codex', readNote: 'último uso de Codex' }, plan, windows, Number.isNaN(at) ? null : at, reached, now)
+    return providerView({ id: 'chatgpt', name: 'ChatGPT', source: 'Codex', readNote: 'last Codex use' }, plan, windows, Number.isNaN(at) ? null : at, reached, now)
   }
   return null
 }
@@ -117,7 +117,7 @@ export function parseAgyUsage(text: string, now: number, readAt: number): Provid
     return g.buckets.map(b => bucketOf(label, b, now)).filter((w): w is ProviderWindow => w !== null)
   })
   if (windows.length === 0) return null
-  return providerView({ id: 'gemini', name: 'Gemini', source: 'Antigravity', readNote: 'consultado a Antigravity' }, null, windows, readAt, false, now)
+  return providerView({ id: 'gemini', name: 'Gemini', source: 'Antigravity', readNote: 'asked Antigravity' }, null, windows, readAt, false, now)
 }
 
 type ProviderId = Pick<ProviderView, 'id' | 'name' | 'source' | 'readNote'>
@@ -129,7 +129,7 @@ export function providerView(who: ProviderId, plan: string | null, windows: Prov
   return { ...who, plan, windows, readAt, isStale: readAt === null || now - readAt > STALE_MS, health }
 }
 
-const HEALTH_WORD: Record<ProviderView['health'], string> = { ready: 'disponible', 'at-cap': 'en su límite', unknown: 'sin dato' }
+const HEALTH_WORD: Record<ProviderView['health'], string> = { ready: 'available', 'at-cap': 'at its limit', unknown: 'no data' }
 
 /** How long ago, for the hub's model: `0 min`, `42 min`, `6 h`. */
 const ageText = (ms: number) => (ms < 3_600_000 ? `${Math.max(0, Math.floor(ms / 60_000))} min` : `${Math.floor(ms / 3_600_000)} h`)
@@ -137,9 +137,9 @@ const ageText = (ms: number) => (ms < 3_600_000 ? `${Math.max(0, Math.floor(ms /
 /** One line per provider for `fleet_status`: health, every window with its reset, and how old the reading is. */
 export function providerLines(providers: ProviderView[], now: number): string[] {
   return providers.map(p => {
-    const head = `${p.name} (vía ${p.source}${p.plan ? `, plan ${p.plan}` : ''}): ${HEALTH_WORD[p.health]}`
-    const windows = p.windows.map(w => (w.pct === null ? `${w.label} ?` : `${w.label} ${Math.round(w.pct)}%${w.resetsAt ? ` (reinicio ${w.resetsAt})` : ''}`))
-    const read = p.readAt === null ? 'sin fecha de lectura' : `leído hace ${ageText(now - p.readAt)}${p.isStale ? ' (antiguo)' : ''}`
+    const head = `${p.name} (via ${p.source}${p.plan ? `, plan ${p.plan}` : ''}): ${HEALTH_WORD[p.health]}`
+    const windows = p.windows.map(w => (w.pct === null ? `${w.label} ?` : `${w.label} ${Math.round(w.pct)}%${w.resetsAt ? ` (reset ${w.resetsAt})` : ''}`))
+    const read = p.readAt === null ? 'no read time' : `read ${ageText(now - p.readAt)} ago${p.isStale ? ' (old)' : ''}`
     return [head, ...windows, read].join(' · ')
   })
 }
@@ -149,7 +149,7 @@ export function providerStatus(providers: ProviderView[]): string[] {
   return providers.map(p => {
     const top = p.windows.filter(w => w.pct !== null).sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))[0]
     const short = p.id === 'chatgpt' ? 'GPT' : p.name
-    return top ? `${short} ${Math.round(top.pct!)}%${p.health === 'at-cap' ? ' tope' : ''}` : `${short} ?`
+    return top ? `${short} ${Math.round(top.pct!)}%${p.health === 'at-cap' ? ' cap' : ''}` : `${short} ?`
   })
 }
 
@@ -163,7 +163,7 @@ export function providerAlerts(providers: ProviderView[], now: number, when: (is
       const isAt = w.pct >= 100
       out.push({
         id: `${p.id}:${w.label}:${isAt ? 'at' : 'near'}:${window}`,
-        text: `${p.name}: ${isAt ? 'límite alcanzado' : `${Math.round(w.pct)} % usado`} en la ventana de ${w.label}; se reinicia ${when(w.resetsAt)}`,
+        text: `${p.name}: ${isAt ? 'limit reached' : `${Math.round(w.pct)}% used`} in the ${w.label} window; resets ${when(w.resetsAt)}`,
       })
     }
   }

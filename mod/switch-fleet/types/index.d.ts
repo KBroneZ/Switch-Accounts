@@ -34,7 +34,7 @@ export type Beat = {
   waitingUntil: string | null
   /** The first line of the last answer, masked and cut short. */
   lastReply: string | null
-  /** Hub mode: the worker answered ENCARGO TERMINADO and was given nothing since. */
+  /** Hub mode: the worker answered TASK DONE and was given nothing since. */
   finished: boolean
   turns: number
   startedAt: number
@@ -132,6 +132,7 @@ export type WorkerView = {
   name: string
   /** The first line of its brief, as the task's title. */
   title: string | null
+  /** The stored value (Spanish since 0.5.0, kept for existing records); drawn as high, medium, low. */
   priority: 'alta' | 'media' | 'baja'
   account: string
   directory: string
@@ -192,7 +193,7 @@ export type ProviderView = {
   windows: ProviderWindow[]
   /** When the provider last reported them: Codex's last turn, Antigravity's last answer. */
   readAt: number | null
-  /** What readAt is, after "leído hace …": `último uso de Codex`, `consultado a Antigravity`, or why it failed. */
+  /** What readAt is, after "read … ago": `last Codex use`, `asked Antigravity`, or why it failed. */
   readNote: string
   isStale: boolean
   health: 'ready' | 'at-cap' | 'unknown'

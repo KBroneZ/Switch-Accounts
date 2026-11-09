@@ -18,12 +18,28 @@ export const RESUME_GRACE_MS = 90_000
 export const FRESH_LIMITS_MS = 2 * 60_000
 export const MAX_BRIEF = 20_000
 export const MAX_MESSAGE = 4_000
-export const DONE_MARK = 'ENCARGO TERMINADO'
-export const HANDOVER_MARK = 'RELEVO LISTO'
+export const DONE_MARK = 'TASK DONE'
+export const HANDOVER_MARK = 'HANDOVER READY'
+/** The marks before 0.9.0: a worker opened earlier was told these, so they still count. */
+const LEGACY_DONE_MARK = 'ENCARGO TERMINADO'
+const LEGACY_HANDOVER_MARK = 'RELEVO LISTO'
 
+/**
+ * Priorities as stored in worker records and sent by the Deck. The values are Spanish (since
+ * 0.5.0) and kept so existing records stay valid; they are drawn and accepted as high/medium/low.
+ */
 export const PRIORITIES = ['alta', 'media', 'baja'] as const
 export type Priority = (typeof PRIORITIES)[number]
 export const isPriority = (v: unknown): v is Priority => typeof v === 'string' && (PRIORITIES as readonly string[]).includes(v)
+/** The word each stored priority is shown and accepted as. */
+export const PRIORITY_LABEL: Record<Priority, string> = { alta: 'high', media: 'medium', baja: 'low' }
+/** What `fleet_open_worker` takes as a priority: the English words, and the stored values. */
+export const PRIORITY_INPUTS = [...PRIORITIES.map(p => PRIORITY_LABEL[p]), ...PRIORITIES]
+/** A priority from tool or Deck input (high/medium/low or a stored value), else null. */
+export function toPriority(v: unknown): Priority | null {
+  if (isPriority(v)) return v
+  return PRIORITIES.find(p => PRIORITY_LABEL[p] === v) ?? null
+}
 
 export type WorkerRecord = {
   schema: 1
@@ -148,6 +164,12 @@ export const resumeAt = (waitingUntil: string) => Date.parse(waitingUntil) + RES
 
 export const startsWithMark = (reply: string, mark: string) => reply.trim().toUpperCase().startsWith(mark)
 
+/** The worker says its task is done (in the current words or the pre-0.9.0 ones). */
+export const isDoneReply = (reply: string) => startsWithMark(reply, DONE_MARK) || startsWithMark(reply, LEGACY_DONE_MARK)
+
+/** The worker says its hand-over is written (in the current words or the pre-0.9.0 ones). */
+export const isHandoverReply = (reply: string) => startsWithMark(reply, HANDOVER_MARK) || startsWithMark(reply, LEGACY_HANDOVER_MARK)
+
 export const shouldRollover = (ctxPct: number | null, rolloverPercent: number, rollover: Beat['rollover']) =>
   rollover === 'none' && ctxPct !== null && ctxPct >= rolloverPercent
 
@@ -184,32 +206,32 @@ export const handoverPath = (workersDir: string, name: string) => `${workersDir}
 export function workerStartPrompt(name: string, account: string, workersDir: string, generation: number): string {
   const brief = briefPath(workersDir, name)
   const handover = handoverPath(workersDir, name)
-  const first = `Eres el worker ${name} del hub de Fleet, en la cuenta ${account}. Lee tu encargo en ${brief} y trabaja en él hasta terminarlo.`
-  const relay = generation > 1 ? ` Eres el relevo número ${generation}: si existe ${handover}, léelo primero (lo dejó tu predecesor) y sigue desde ahí.` : ''
-  const rules = ` Los mensajes del hub te llegarán como prompts. Cuando el encargo esté terminado del todo, responde con una línea que empiece por ${DONE_MARK}.`
+  const first = `You are worker ${name} of the Fleet hub, on account ${account}. Read your brief in ${brief} and work on it until it is done.`
+  const relay = generation > 1 ? ` You are successor number ${generation}: if ${handover} exists, read it first (your predecessor left it) and go on from there.` : ''
+  const rules = ` Messages from the hub reach you as prompts. When the brief is fully done, reply with a line that starts with ${DONE_MARK}.`
   return first + relay + rules
 }
 
 export function rolloverPrompt(ctxPct: number, workersDir: string, name: string): string {
   return (
-    `Fleet: tu contexto va por el ${Math.round(ctxPct)} %. Termina el paso en curso sin empezar nada nuevo y escribe el relevo en ` +
-    `${handoverPath(workersDir, name)}: qué hiciste, qué queda y en qué orden, ramas, PRs y comandos útiles, y decisiones abiertas. ` +
-    `Cuando esté escrito, responde solo: ${HANDOVER_MARK}. Una sesión nueva de tu misma cuenta seguirá desde ese archivo.`
+    `Fleet: your context is at ${Math.round(ctxPct)}%. Finish the current step without starting anything new and write your hand-over to ` +
+    `${handoverPath(workersDir, name)}: what you did, what is left and in what order, branches, PRs and useful commands, and open decisions. ` +
+    `Once it is written, reply only: ${HANDOVER_MARK}. A fresh session of your same account will go on from that file.`
   )
 }
 
-export const RESUME_PROMPT = 'Fleet: la ventana de uso de tu cuenta se ha reiniciado. Sigue con tu encargo donde lo dejaste.'
+export const RESUME_PROMPT = "Fleet: your account's usage window has reset. Go on with your brief where you left off."
 
 export function inboxPrompt(messages: InboxMessage[]): string {
   const body = messages.map(m => (messages.length > 1 ? `(${m.seq}) ${m.text}` : m.text)).join('\n\n')
-  return `Mensaje del hub de Fleet:\n\n${body}`
+  return `Message from the Fleet hub:\n\n${body}`
 }
 
 /** One line per account and session, short enough for the hub to read every few minutes. */
 type StatusMeter = { pct: number | null; cap: number | null; resetsAt: string | null }
 
-/** `30%/100 (reinicio …)`, or `?` when the use is unknown. */
-const meterText = (m: StatusMeter) => (m.pct === null ? '?' : `${Math.round(m.pct)}%/${m.cap ?? '-'}${m.resetsAt ? ` (reinicio ${m.resetsAt})` : ''}`)
+/** `30%/100 (reset …)`, or `?` when the use is unknown. */
+const meterText = (m: StatusMeter) => (m.pct === null ? '?' : `${Math.round(m.pct)}%/${m.cap ?? '-'}${m.resetsAt ? ` (reset ${m.resetsAt})` : ''}`)
 
 export function compactStatus(
   accounts: { name: string; plan?: string | null; health: string; reason: string | null; fiveHour: StatusMeter; weekly: StatusMeter }[],
@@ -219,21 +241,21 @@ export function compactStatus(
 ): string {
   const lines: string[] = []
   for (const a of accounts) {
-    lines.push(`cuenta ${a.name}${a.plan ? ` (${a.plan})` : ''}: ${a.health}${a.reason ? ` (${a.reason})` : ''} · 5h ${meterText(a.fiveHour)} · semana ${meterText(a.weekly)}`)
+    lines.push(`account ${a.name}${a.plan ? ` (${a.plan})` : ''}: ${a.health}${a.reason ? ` (${a.reason})` : ''} · 5h ${meterText(a.fiveHour)} · week ${meterText(a.weekly)}`)
   }
   for (const b of beats) {
     const age = Math.round((now - b.updatedAt) / 1000)
     const parts = [
-      b.worker ? `worker ${b.worker}` : 'sesión',
+      b.worker ? `worker ${b.worker}` : 'session',
       `[${accountOf(b.configDir)}]`,
       b.repo ?? b.cwd,
-      b.finished ? 'encargo terminado' : b.state,
+      b.finished ? 'task done' : b.state,
       b.tool ? `${b.tool}${b.detail ? `: ${b.detail}` : ''}` : null,
       b.ctxPct !== null ? `ctx ${Math.round(b.ctxPct)}%` : null,
-      b.rollover !== 'none' ? `relevo ${b.rollover}` : null,
-      b.waitingUntil ? `espera hasta ${b.waitingUntil}` : null,
-      b.lastReply ? `última respuesta: «${b.lastReply}»` : null,
-      `hace ${age}s`,
+      b.rollover !== 'none' ? `hand-over ${b.rollover}` : null,
+      b.waitingUntil ? `waiting until ${b.waitingUntil}` : null,
+      b.lastReply ? `last reply: “${b.lastReply}”` : null,
+      `${age}s ago`,
     ].filter(Boolean)
     lines.push(parts.join(' · '))
   }
@@ -247,8 +269,8 @@ export function compactStatus(
 export function directorNote(at: { isHub: boolean; worker: string | null; turns: number; isEnabled: boolean; isCommand: boolean; isMeta: boolean; hubAccount: string }): string | null {
   if (!at.isEnabled || !at.isHub || at.worker !== null || at.turns > 0 || at.isCommand || at.isMeta) return null
   return [
-    `Fleet: esta es una sesión hub (cuenta ${at.hubAccount}).`,
-    'Si la petición se puede repartir en tareas, carga antes la skill `fleet-director`: reparte el trabajo entre las cuentas de Claude, ChatGPT y Gemini según el nivel, el effort y la prioridad, y enseña la tabla al usuario para que la apruebe antes de lanzar nada.',
-    'Si es trivial (una pregunta, un cambio pequeño), hazla directamente sin repartir.',
+    `Fleet: this is a hub session (account ${at.hubAccount}).`,
+    'If the request can be split into tasks, first load the `fleet-director` skill: share the work out among the Claude accounts, ChatGPT and Gemini by level, effort and priority, and show the plan to the user for approval before starting anything.',
+    'If it is trivial (a question, a small change), do it directly without splitting it.',
   ].join(' ')
 }

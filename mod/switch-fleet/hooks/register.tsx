@@ -188,7 +188,7 @@ async function maybeRefresh($: EngineInterface, force: boolean) {
     if (lock && t - lock < LOCK_MS) return
   }
   if (!(await $.fs.exists(S.paths.script))) {
-    S.lastError = `No encuentro ${S.paths.script}. Instala la skill switch-account o pon scriptPath.`
+    S.lastError = `Cannot find ${S.paths.script}. Install the switch-account skill or set scriptPath.`
     await rebuild($)
     return
   }
@@ -198,9 +198,9 @@ async function maybeRefresh($: EngineInterface, force: boolean) {
     await $.fs.write(S.paths.lock, String(t)).catch(() => undefined)
     await rebuild($)
     const r = await $.process.run(['pwsh', '-NoProfile', '-NonInteractive', '-File', S.paths.script, '-List'], { timeoutMs: REFRESH_TIMEOUT_MS })
-    if (r.exitCode !== 0) S.lastError = shorten(`-List falló (${r.exitCode}): ${(r.stderr || r.stdout).trim()}`, 200)
+    if (r.exitCode !== 0) S.lastError = shorten(`-List failed (${r.exitCode}): ${(r.stderr || r.stdout).trim()}`, 200)
   } catch (err) {
-    S.lastError = shorten(`No pude ejecutar pwsh: ${String(err)}`, 200)
+    S.lastError = shorten(`Could not run pwsh: ${String(err)}`, 200)
   } finally {
     S.isRefreshing = false
   }
@@ -254,7 +254,7 @@ function deckActions($: EngineInterface): DeckActions {
         const answer = await deckHub($, 'fleet_send', { worker, text })
         drafts.messages[worker] = ''
         drafts.sent[worker] = (drafts.sent[worker] ?? 0) + 1
-        await deckNote($, answer, !/^Mensaje \d+ en cola/.test(answer))
+        await deckNote($, answer, !/^Message \d+ queued/.test(answer))
       }),
     askStop: worker =>
       run(async () => {
@@ -264,7 +264,7 @@ function deckActions($: EngineInterface): DeckActions {
     stop: worker =>
       run(async () => {
         const answer = await deckHub($, 'fleet_stop_worker', { worker })
-        await deckNote($, answer, !/^Worker \S+: parará/.test(answer))
+        await deckNote($, answer, !/^Worker \S+: will stop/.test(answer))
       }),
     toggleForm: () =>
       run(async () => {
@@ -284,19 +284,19 @@ function deckActions($: EngineInterface): DeckActions {
       run(async () => {
         const answer = await setWorkerPriority($, worker, priority)
         await rebuild($)
-        await deckNote($, answer, !answer.startsWith(`${worker}:`) && !answer.includes('ya tiene'))
+        await deckNote($, answer, !answer.startsWith(`${worker}:`) && !answer.includes('already has'))
       }),
     dismissNote: () => run(() => deckNote($, null)),
   }
 
   async function openFromDeck(draft: WorkerDraft) {
-    await deckNote($, `Abriendo el worker ${draft.name || '?'} en la cuenta ${draft.account || '?'}…`, false, { busy: 'open' })
+    await deckNote($, `Opening worker ${draft.name || '?'} on account ${draft.account || '?'}…`, false, { busy: 'open' })
     const input: Record<string, unknown> = { account: draft.account, worker: draft.name, directory: draft.directory, brief: draft.brief }
     if (draft.model) input.model = draft.model
     if (draft.effort) input.effort = draft.effort
     if (draft.priority) input.priority = draft.priority
     const answer = await deckHub($, 'fleet_open_worker', input)
-    const isOpened = answer.startsWith(`Worker ${draft.name} abierto`)
+    const isOpened = answer.startsWith(`Worker ${draft.name} opened`)
     if (isOpened) drafts.worker = { ...drafts.worker, name: '', brief: '' }
     await deckNote($, answer, !isOpened, { busy: null, ...(isOpened ? { isFormOpen: false } : {}) })
   }
@@ -313,27 +313,27 @@ function noteError(err: unknown) {
 async function openSessionOn($: EngineInterface, account: string) {
   if (!S.paths || !S.beat) return
   if (!/^[A-Za-z0-9._-]{1,40}$/.test(account)) return
-  await $.ui.toast(`Abriendo una sesión en la cuenta ${account}…`)
+  await $.ui.toast(`Opening a session on account ${account}…`)
   const r = await $.process.run(
     ['pwsh', '-NoProfile', '-NonInteractive', '-File', S.paths.script, '-Account', account, '-Directory', S.beat.cwd],
     { timeoutMs: REFRESH_TIMEOUT_MS },
   )
   const lines = (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim().split(/\r?\n/)
   const last = lines[lines.length - 1] ?? ''
-  await $.ui.toast(r.exitCode === 0 ? last : `No se abrió (código ${r.exitCode}): ${shorten(last, 160)}`, { timeoutMs: 10_000 })
+  await $.ui.toast(r.exitCode === 0 ? last : `Did not open (code ${r.exitCode}): ${shorten(last, 160)}`, { timeoutMs: 10_000 })
 }
 
 /** The per-day usage table of usage-report.ps1, which the skill installs beside open-session.ps1. */
 async function usageReport($: EngineInterface): Promise<string> {
-  if (!S.paths) return 'Fleet aún no ha arrancado.'
+  if (!S.paths) return 'Fleet has not started yet.'
   // The sibling of the configured script by folder and a fixed name, never the script itself.
   const folder = S.paths.script.replace(/[\\/][^\\/]*$/, '')
   const script = `${folder}/usage-report.ps1`
-  if (folder === S.paths.script || !(await $.fs.exists(script))) return `No encuentro ${script}. Reinstala la skill switch-account.`
+  if (folder === S.paths.script || !(await $.fs.exists(script))) return `Cannot find ${script}. Reinstall the switch-account skill.`
   const r = await $.process.run(['pwsh', '-NoProfile', '-NonInteractive', '-File', script], { timeoutMs: 60_000 })
   const out = (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim()
   const fence = '```'
-  return r.exitCode === 0 ? [fence, out, fence].join('\n') : `El informe falló (${r.exitCode}): ${shorten(out, 300)}`
+  return r.exitCode === 0 ? [fence, out, fence].join('\n') : `The report failed (${r.exitCode}): ${shorten(out, 300)}`
 }
 
 /** Opens the pane once per load when openOnStart is on and something other than a phone draws. */
@@ -486,7 +486,7 @@ export const register: Register = (on, options) => {
     const verb = e.args.trim().split(/\s+/)[0] || 'open'
     if (verb === 'close') {
       await $.ui.close({ id: PANE })
-      return { text: 'Fleet cerrado.' }
+      return { text: 'Fleet closed.' }
     }
     if (verb === 'report') {
       return { text: await usageReport($) }
@@ -494,10 +494,10 @@ export const register: Register = (on, options) => {
     if (verb === 'refresh') {
       void maybeRefresh($, true).catch(err => noteError(err))
       await openPane($)
-      return { text: 'Fleet: leyendo el uso de todas las cuentas…' }
+      return { text: 'Fleet: reading the usage of every account…' }
     }
     const opened = await openPane($)
-    return { text: opened.isPlaced ? 'Fleet abierto. /fleet refresh vuelve a leer el uso.' : `Fleet aún no se muestra: ${opened.reason}` }
+    return { text: opened.isPlaced ? 'Fleet open. /fleet refresh reads the usage again.' : `Fleet is not shown yet: ${opened.reason}` }
   })
 
   // ------------------------------------------------------------ pane
@@ -520,9 +520,9 @@ export const register: Register = (on, options) => {
         </Text>
         <Box flexShrink={0} columnGap={1}>
           <Text color={C.dim}>
-            {view?.isRefreshing ? 'leyendo uso…' : view?.snapshotAt ? `uso hace ${fmtSpan(t - Date.parse(view.snapshotAt))}` : 'sin datos de uso'}
+            {view?.isRefreshing ? 'reading usage…' : view?.snapshotAt ? `usage ${fmtSpan(t - Date.parse(view.snapshotAt))} ago` : 'no usage data'}
           </Text>
-          <Button key="refresh" hotkey="r" label="actualizar" onPress={() => void maybeRefresh($, true).catch(err => noteError(err))} />
+          <Button key="refresh" hotkey="r" label="refresh" onPress={() => void maybeRefresh($, true).catch(err => noteError(err))} />
         </Box>
       </Box>
     )
@@ -530,7 +530,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" width={W}>
           {header}
-          <Text color={C.dim}>Cargando…</Text>
+          <Text color={C.dim}>Loading…</Text>
         </Box>
       )
     }
@@ -538,15 +538,15 @@ export const register: Register = (on, options) => {
     const healthChip = (a: AccountView) => {
       switch (a.health) {
         case 'ready':
-          return <Text color={C.ok}>● lista</Text>
+          return <Text color={C.ok}>● ready</Text>
         case 'at-cap':
           return <Text color={C.warn}>◐ {a.reason}</Text>
         case 'logged-out':
-          return <Text color={C.bad}>✗ login caducado</Text>
+          return <Text color={C.bad}>✗ login expired</Text>
         case 'not-ready':
           return <Text color={C.warn}>◌ {a.reason}</Text>
         default:
-          return <Text color={C.dim}>? desconocido</Text>
+          return <Text color={C.dim}>? unknown</Text>
       }
     }
 
@@ -554,7 +554,7 @@ export const register: Register = (on, options) => {
       if (m.pct === null) {
         return (
           <Box>
-            <Text color={C.dim}>{label.padEnd(4)}sin dato</Text>
+            <Text color={C.dim}>{label.padEnd(4)}no data</Text>
           </Box>
         )
       }
@@ -577,7 +577,7 @@ export const register: Register = (on, options) => {
           <Text color={C.dim}>{m.cap !== null ? `/${Math.round(m.cap)}` : ''}</Text>
           <Text color={C.dim} wrap="truncate">
             {reset}
-            {m.isLive ? ' ·en vivo' : ''}
+            {m.isLive ? ' ·live' : ''}
           </Text>
         </Box>
       )
@@ -599,14 +599,14 @@ export const register: Register = (on, options) => {
       const dot = s.liveness === 'quiet' ? '◌' : isWorking ? '●' : s.state === 'ended' ? '✕' : '○'
       const color = s.liveness === 'quiet' || s.state === 'ended' ? C.faint : isWorking ? C.main : C.dim
       const badge = s.waitingUntil
-        ? `esperando reinicio (${fmtWhen(s.waitingUntil, t, offset)})`
+        ? `waiting for reset (${fmtWhen(s.waitingUntil, t, offset)})`
         : s.rollover === 'requested'
-          ? 'escribiendo relevo'
+          ? 'writing hand-over'
           : s.rollover === 'ready'
-            ? 'relevo listo, esperando sucesor'
+            ? 'hand-over ready, waiting for successor'
             : null
-      const idleWhat = s.state === 'ended' ? 'cerrada' : (badge ?? (s.lastReply ? `en espera · «${s.lastReply}»` : 'en espera'))
-      const what = isWorking ? (s.tool ? `${s.tool}${s.detail ? `: ${s.detail}` : ''}` : 'pensando') : idleWhat
+      const idleWhat = s.state === 'ended' ? 'closed' : (badge ?? (s.lastReply ? `idle · “${s.lastReply}”` : 'idle'))
+      const what = isWorking ? (s.tool ? `${s.tool}${s.detail ? `: ${s.detail}` : ''}` : 'thinking') : idleWhat
       const meta = [s.model ? s.model.replace(/^claude-/, '').replace(/-\d{8}$/, '') : null, s.ctxPct !== null ? `ctx ${Math.round(s.ctxPct)}%` : null, s.costUsd ? `$${s.costUsd.toFixed(2)}` : null, fmtSpan(t - s.stateSince)]
         .filter(Boolean)
         .join(' · ')
@@ -616,8 +616,8 @@ export const register: Register = (on, options) => {
             <Text color={color} bold={isWorking} wrap="truncate">
               {dot} {s.worker ? `[${s.worker}] ` : ''}
               {s.place}
-              {s.isSelf ? ' (esta)' : ''}
-              {s.quotaAccount ? <Text color={C.warn}>{` · cuota de ${s.quotaAccount}`}</Text> : null}
+              {s.isSelf ? ' (this)' : ''}
+              {s.quotaAccount ? <Text color={C.warn}>{` · quota of ${s.quotaAccount}`}</Text> : null}
             </Text>
             <Box flexShrink={0}>
               <Text color={C.dim}>{meta}</Text>
@@ -640,13 +640,13 @@ export const register: Register = (on, options) => {
     const pipelineBox = (p: PipelineView) => {
       const inner = W - 4
       const color = p.state === 'running' ? C.main : p.state === 'waiting' ? C.warn : p.state === 'stopped' ? C.bad : C.dim
-      const label = { running: '● en marcha', waiting: '◐ esperando reinicio', done: '✓ terminado', stopped: '✗ parado' }[p.state]
+      const label = { running: '● running', waiting: '◐ waiting for reset', done: '✓ done', stopped: '✗ stopped' }[p.state]
       return (
         <Box key="pipeline" flexDirection="column" borderStyle="single" borderColor={color} paddingX={1} width={W}>
           <Box justifyContent="space-between" width={inner}>
             <Text bold wrap="truncate">
               <Text color={C.main}>PIPELINE</Text>
-              <Text color={C.dim}>{` · ${p.repo} · ciclo ${p.cycle}/${p.maxCycles}`}</Text>
+              <Text color={C.dim}>{` · ${p.repo} · cycle ${p.cycle}/${p.maxCycles}`}</Text>
             </Text>
             <Box flexShrink={0}>
               <Text color={color}>{label}</Text>
@@ -654,17 +654,17 @@ export const register: Register = (on, options) => {
           </Box>
           {p.roles.map(role => (
             <Text color={C.text} wrap="truncate">
-              {role.role === 'implementer' ? 'A implementa' : 'B revisa'}
-              <Text color={C.dim}>{` · tarea ${role.task ?? '—'} · ${[role.outcome, role.status].filter(Boolean).join(' ')}`}</Text>
+              {role.role === 'implementer' ? 'A implements' : 'B reviews'}
+              <Text color={C.dim}>{` · task ${role.task ?? '—'} · ${[role.outcome, role.status].filter(Boolean).join(' ')}`}</Text>
             </Text>
           ))}
-          {p.waitUntil ? <Text color={C.warn}>reintenta {fmtWhen(p.waitUntil, t, offset)}</Text> : null}
+          {p.waitUntil ? <Text color={C.warn}>retries {fmtWhen(p.waitUntil, t, offset)}</Text> : null}
           {p.message ? (
             <Text color={C.dim} wrap="truncate">
               {p.message}
             </Text>
           ) : null}
-          <Text color={C.faint}>act. hace {fmtSpan(t - Date.parse(p.updatedAt))}</Text>
+          <Text color={C.faint}>updated {fmtSpan(t - Date.parse(p.updatedAt))} ago</Text>
         </Box>
       )
     }
@@ -677,9 +677,9 @@ export const register: Register = (on, options) => {
           <Box justifyContent="space-between" width={inner}>
             <Text bold wrap="truncate">
               <Text color={C.info}>{p.name}</Text>
-              <Text color={C.dim}>{`${p.plan ? ` · ${p.plan}` : ''} · vía ${p.source}`}</Text>
+              <Text color={C.dim}>{`${p.plan ? ` · ${p.plan}` : ''} · via ${p.source}`}</Text>
             </Text>
-            <Box flexShrink={0}>{p.health === 'at-cap' ? <Text color={C.bad}>✗ límite</Text> : p.health === 'ready' ? <Text color={C.ok}>● disponible</Text> : <Text color={C.dim}>? sin dato</Text>}</Box>
+            <Box flexShrink={0}>{p.health === 'at-cap' ? <Text color={C.bad}>✗ limit</Text> : p.health === 'ready' ? <Text color={C.ok}>● available</Text> : <Text color={C.dim}>? no data</Text>}</Box>
           </Box>
           {p.windows.map(w => {
             const meter: Meter = { pct: w.pct, cap: null, resetsAt: w.resetsAt, isLive: false }
@@ -693,7 +693,7 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
-          <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `leído hace ${fmtSpan(t - p.readAt)} (${p.readNote})` : 'sin fecha de lectura'}</Text>
+          <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `read ${fmtSpan(t - p.readAt)} ago (${p.readNote})` : 'no read time'}</Text>
         </Box>
       )
     }
@@ -709,23 +709,23 @@ export const register: Register = (on, options) => {
             <Text bold wrap="truncate">
               <Text color={C.main}>{a.name}</Text>
               <Text color={C.dim}>{a.plan ? ` · ${a.plan}` : ''}</Text>
-              <Text color={C.dim}>{a.sessions.length ? ` · ${a.sessions.length} ses.${working ? `, ${working} activa${working > 1 ? 's' : ''}` : ''}` : ''}</Text>
+              <Text color={C.dim}>{a.sessions.length ? ` · ${a.sessions.length} ses.${working ? `, ${working} active` : ''}` : ''}</Text>
             </Text>
             <Box flexShrink={0}>{healthChip(a)}</Box>
           </Box>
           {a.health === 'logged-out' ? (
             <Box flexDirection="column">
-              <Text color={C.bad}>Inicia sesión otra vez en una terminal:</Text>
+              <Text color={C.bad}>Sign in again in a terminal:</Text>
               <Text color={C.text}>{a.loginCommand ?? 'claude auth login'}</Text>
             </Box>
           ) : (
             <Box flexDirection="column">
               {meterRow('5h', a.fiveHour, inner)}
               {forecastRow(a.fiveHourForecast)}
-              {meterRow('sem', a.weekly, inner)}
+              {meterRow('wk', a.weekly, inner)}
               {forecastRow(a.weeklyForecast)}
               {days !== null && days < 7 ? (
-                <Text color={days < 2 ? C.bad : C.warn}>login caduca en {fmtSpan(Date.parse(a.loginExpiresAt!) - t)}</Text>
+                <Text color={days < 2 ? C.bad : C.warn}>login expires in {fmtSpan(Date.parse(a.loginExpiresAt!) - t)}</Text>
               ) : null}
             </Box>
           )}
@@ -735,7 +735,7 @@ export const register: Register = (on, options) => {
                 key={`open-${a.name}`}
                 plain
                 {...(index < 9 ? { hotkey: String(index + 1) } : {})}
-                label={`+ abrir sesión en ${a.name} aquí`}
+                label={`+ open session on ${a.name} here`}
                 onPress={() => void openSessionOn($, a.name).catch(err => noteError(err))}
               />
             </Box>
@@ -744,7 +744,7 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column" marginTop={0}>
               <Text color={C.faint}>{'─'.repeat(Math.max(1, inner))}</Text>
               {a.sessions.slice(0, 6).map(s => sessionRow(s, inner))}
-              {a.sessions.length > 6 ? <Text color={C.dim}>+{a.sessions.length - 6} más</Text> : null}
+              {a.sessions.length > 6 ? <Text color={C.dim}>+{a.sessions.length - 6} more</Text> : null}
             </Box>
           ) : null}
         </Box>
@@ -757,14 +757,14 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" width={W}>
         {header}
         <Text color={C.dim}>
-          {view.accounts.length} cuenta{view.accounts.length === 1 ? '' : 's'} · {total} sesi{total === 1 ? 'ón' : 'ones'} · {busy} trabajando
+          {view.accounts.length} account{view.accounts.length === 1 ? '' : 's'} · {total} session{total === 1 ? '' : 's'} · {busy} working
         </Text>
         {view.error ? (
           <Text color={C.bad} wrap="wrap">
             {view.error}
           </Text>
         ) : null}
-        {view.accounts.length === 0 ? <Text color={C.dim}>Sin cuentas. Pulsa actualizar o ejecuta /fleet refresh.</Text> : null}
+        {view.accounts.length === 0 ? <Text color={C.dim}>No accounts. Press refresh or run /fleet refresh.</Text> : null}
         {view.pipeline ? pipelineBox(view.pipeline) : null}
         {view.accounts.map(card)}
         {(view.providers ?? []).map(providerBox)}

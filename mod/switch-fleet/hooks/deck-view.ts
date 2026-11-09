@@ -145,22 +145,22 @@ export function contextSvg(ctxPct: number | null, threshold: number, width = 160
 export function phaseLabel(w: WorkerView, when: (iso: string) => string): string {
   switch (w.phase) {
     case 'working':
-      return w.tool ? `trabajando · ${w.tool}${w.detail ? `: ${w.detail}` : ''}` : 'pensando'
+      return w.tool ? `working · ${w.tool}${w.detail ? `: ${w.detail}` : ''}` : 'thinking'
     case 'idle':
-      return 'en espera'
+      return 'idle'
     case 'waiting':
-      return w.waitingUntil ? `esperando reinicio · ${when(w.waitingUntil)}` : 'esperando reinicio'
+      return w.waitingUntil ? `waiting for reset · ${when(w.waitingUntil)}` : 'waiting for reset'
     case 'handover':
-      return 'escribiendo relevo'
+      return 'writing hand-over'
     case 'successor':
-      return 'relevo pendiente: se abre cuando su cuenta esté lista'
+      return 'successor due: opens once its account is ready'
     case 'starting':
-      return 'abriendo…'
+      return 'opening…'
     case 'finished':
-      return 'encargo terminado'
+      return 'task done'
     case 'stopped':
-      return 'parado'
+      return 'stopped'
     default:
-      return 'sin sesión'
+      return 'no session'
   }
 }
