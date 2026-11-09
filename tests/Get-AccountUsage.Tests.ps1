@@ -122,6 +122,15 @@ Describe 'ConvertFrom-UsageText' {
         $usage.Reason | Should -BeNullOrEmpty
     }
 
+    It 'says the account is not logged in with a subscription when /usage answers with the API cost' {
+        $text = "Total cost:            `$0.0000`nTotal duration (API):  0s`nUsage:                 0 input, 0 output, 0 cache read, 0 cache write"
+
+        $usage = ConvertFrom-UsageText -Text $text -Now $now
+
+        $usage.Status | Should -Be 'Unknown'
+        $usage.Reason | Should -BeLike '*not logged in with a subscription*'
+    }
+
     It 'keeps the account unknown when the idle layout is not exact: <Case>' -TestCases @(
         @{ Case = 'no subscription header'; Text = (Get-IdleUsageText) -replace 'You are currently using your subscription[^\n]*\n', '' }
         @{ Case = 'no breakdown section'; Text = "You are currently using your subscription to power your Claude Code usage`n" }

@@ -18,6 +18,7 @@ Describe 'scripts/install-skill.ps1' {
         $target = Join-Path $dir 'skills' 'switch-account'
         Get-Content -LiteralPath (Join-Path $target 'SKILL.md') -Raw | Should -Be (Get-Content -LiteralPath (Join-Path $repo 'skills' 'switch-account' 'SKILL.md') -Raw)
         Test-Path -LiteralPath (Join-Path $target 'scripts' 'open-session.ps1') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $target 'scripts' 'usage-report.ps1') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $target 'src' 'SwitchAccounts.psd1') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $target 'src' 'Public' 'Open-ClaudeSession.ps1') | Should -BeTrue
     }

@@ -359,6 +359,7 @@ Describe 'run-pipeline.ps1' {
             AccountAConfigDir = $a.ConfigDir; AccountBConfigDir = $b.ConfigDir
             MaxFiveHourPercentA = 70; MaxFiveHourPercentB = 50
             ClaudePath = $fakeClaude; GhPath = $fakeGh
+            StatusPath = (Join-Path $TestDrive "pipeline-$([guid]::NewGuid()).json")
         }
     }
     AfterEach { Remove-Item Env:FAKE_GH_DIR -ErrorAction SilentlyContinue }
@@ -370,6 +371,10 @@ Describe 'run-pipeline.ps1' {
 
         $LASTEXITCODE | Should -Be 0
         (Get-TaskState $repo '001').status | Should -Be 'approved'
+        $status = Get-Content -LiteralPath $common.StatusPath -Raw | ConvertFrom-Json
+        $status.schema | Should -Be 1
+        $status.state | Should -Be 'done'
+        $status.repo | Should -Be (Split-Path -Leaf $repo.Clone)
     }
 
     It 'exits 3 when no role can run because of usage, without waiting by default' {
@@ -380,6 +385,9 @@ Describe 'run-pipeline.ps1' {
 
         $LASTEXITCODE | Should -Be 3
         @(Get-SessionCalls $a) | Should -HaveCount 0
+        $status = Get-Content -LiteralPath $common.StatusPath -Raw | ConvertFrom-Json
+        $status.state | Should -Be 'stopped'
+        $status.roles.role | Should -Contain 'implementer'
     }
 
     It 'appends -ExtraImplementerTools to the implementer defaults' {

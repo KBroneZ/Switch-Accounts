@@ -31,6 +31,10 @@ function ConvertFrom-UsageText {
     $lines = $Text -split '\r?\n'
     $sessionLines = @($lines | Where-Object { $_ -match '^\s*Current session\b' })
     if ($sessionLines.Count -eq 0) {
+        if (@($lines | Where-Object { $_ -match '^\s*Total cost:' }).Count -gt 0) {
+            # Without a subscription login, /usage answers with the API cost summary of /cost.
+            return New-UsageResult -Reason '/usage showed API cost, not plan limits: the account is not logged in with a subscription (login expired?)'
+        }
         if (Test-IdleUsageText -Text $Text) {
             # CLI 2.1.295 leaves the limit lines out when nothing was used in the window.
             return [pscustomobject]@{

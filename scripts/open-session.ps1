@@ -5,7 +5,8 @@
     Wrapper of Open-ClaudeSession with fixed exit codes, for the switch-account skill and for
     scripts. Prints one summary line (Spanish) and, with -PrintOnly, the launch script.
 
-    -List             show the accounts with 5-hour and weekly usage, caps, reset times and readiness
+    -List             show the accounts with login, 5-hour and weekly usage, caps, reset times and
+                      readiness, and save them to status.json beside accounts.json (the Fleet pane reads it)
     -ShowConfig       print ~/.claude-switch/accounts.json (created with defaults when missing)
     -Json             print the result object as JSON instead of the summary line
 
@@ -84,6 +85,10 @@ try {
         $listArgs = $common.Clone()
         if ($Directory) { $listArgs.Directory = $Directory }
         $statuses = @(Get-ClaudeAccountStatus @listArgs)
+        $snapshotArgs = @{}
+        if ($ConfigPath) { $snapshotArgs.ConfigPath = $ConfigPath }
+        try { Save-FleetSnapshot -Statuses $statuses @snapshotArgs | Out-Null }
+        catch { Write-Warning "Could not write status.json: $($_.Exception.Message)" }
         if ($Json) { $statuses | Select-Object -ExcludeProperty Line | ConvertTo-Json -Depth 4 }
         else { $statuses | ForEach-Object { $_.Line } }
         exit 0

@@ -28,7 +28,10 @@ git worktree and branch, and each one stops at a cap you set on its **5-hour usa
 | `Test-UsageCap` | Allows a session only if usage is known **and** below your cap. Unknown usage blocks (unknown is never treated as 0). An optional `-MaxWeeklyPercent` adds a cap on the weekly (all models) usage. |
 | `Initialize-SecondaryAccount` / `Test-SecondaryAccount` | Shares `rules`, `skills` and `agents` from your main config dir with the second one through directory links, and writes a `CLAUDE.md` that imports the main one. Credentials, account state, settings, projects and sessions are never read, copied or linked. |
 | `Open-ClaudeSession` / `scripts/open-session.ps1` | Opens a Windows Terminal tab with Claude Code on one of your accounts (`auto` = least used below its cap), with model, effort, subagent model, Remote Control, a first prompt and an optional git worktree. See [Open a session](#open-a-session-on-one-of-your-accounts). |
-| `Get-ClaudeAccountStatus` | Lists the accounts with 5-hour and weekly usage, caps, reset times and whether each can open a session in a folder. |
+| `Get-ClaudeAccountStatus` | Lists the accounts with login state, plan, 5-hour and weekly usage, caps, reset times and whether each can open a session in a folder. |
+| `Get-AccountAuth` | Reads whether an account is logged in, its plan and when the login expires (`claude auth status --json`); keeps nothing else. |
+| Fleet mod (`mod/switch-fleet`) | A live pane, like Flightdeck, with every account and every session running on each, usage forecasts, alerts, the pipeline and one-key session opening. See [Fleet](#fleet-every-account-and-session-in-one-pane). |
+| `Get-UsageReport` / `scripts/usage-report.ps1` | Usage per account and day from the history `-List` keeps. |
 | `Get-QueueTask` | Reads the task queue (one Markdown file per task). |
 | `Invoke-AccountSession` | Runs one `claude -p` session for one account, inside its cap, with turn and time limits. |
 | `Invoke-PipelineCycle` | One step of the pipeline: A implements task N+1 while B reviews task N. |
@@ -185,6 +188,90 @@ so `auto` can pick the account. Anything else without a `Current session` line i
 Its weekly usage stays unknown, so an account with a `maxWeeklyPercent` cap is not available
 until it has a weekly line.
 
+### Login state
+
+Each account's login is read first with `claude auth status --json` (local, no model request).
+Only five facts are kept: logged in or not, the method, the subscription type, the plan tier and
+when the login expires; the email, organization and ids it also prints are dropped. A logged-out
+account is not asked for `/usage` (whose answer would only be the API cost summary) and `-List`
+says so with the exact line that logs it in again:
+
+```text
+B: not logged in (login expired?), not available. Log in again: $env:CLAUDE_CONFIG_DIR = '...'; claude auth login; Remove-Item Env:CLAUDE_CONFIG_DIR
+```
+
+When `auth status` cannot be read (an older CLI), `/usage` is read as before. Several accounts are
+read side by side. `-List` also writes `~/.claude-switch/status.json` (schema 1: login, usage,
+caps, decision and readiness per account; no email, ids or credentials), which the Fleet pane
+reads.
+
+## Fleet: every account and session in one pane
+
+`mod/switch-fleet` is a Claude Code mod (CLI 2.1.287 or later) in the style of Flightdeck. Its
+pane shows one card per account (login, 5-hour and weekly gauges against your caps, reset times,
+login expiry) and, under each card, every Claude Code session running on that account: folder or
+repository, model, what it is doing now (thinking, the tool it runs, waiting), context used, cost
+and how long it has been in that state.
+
+How it knows: each session that loads the mod writes a small heartbeat to
+`~/.claude-switch/live/<session>.json` (its config dir, folder, model, state, current tool with
+keys and tokens masked, the first 70 characters of the prompt it works on, context, cost and the
+5-hour and weekly use of its own account). Every pane reads all heartbeats, so the mod has to be
+loaded in each account's sessions to see them. A session's own reading of its limits is newer
+than `status.json` and wins over it (marked "en vivo"). When `status.json` is older than
+`refreshMinutes` (default 5), one pane runs `open-session.ps1 -List` again; a lock file keeps two
+sessions from doing it at once. Nothing leaves the machine and the mod makes no model calls.
+
+Install it in each account (this repository is its marketplace). At the prompt of a terminal session:
+
+```
+/plugin install switch-fleet --marketplace KBroneZ/Switch-Accounts
+```
+
+From a shell: `claude plugin install switch-fleet --marketplace KBroneZ/Switch-Accounts` (with
+`CLAUDE_CONFIG_DIR` set for a second account). In the desktop app: + next to the prompt box, then
+Plugins, Add marketplace with `KBroneZ/Switch-Accounts`, then Add plugin. While developing,
+`claude --plugin-dir mod/switch-fleet` loads it for one session.
+
+| Command | Does |
+| --- | --- |
+| `/fleet` | open the pane |
+| `/fleet refresh` (or `r` in the pane) | read every account's login and usage again |
+| `/fleet report` | usage per account and day (`scripts/usage-report.ps1`) |
+| `/fleet close` | close it |
+| `1`, `2`, ... in the pane | open a Claude Code tab on that account, in this session's folder |
+
+Options (`/config`): `scriptPath`, `refreshMinutes`, `openOnStart`, `statusLine`. Its tests run
+with `claude plugin test mod/switch-fleet`.
+
+**Forecast.** `-List` appends each account's 5-hour and weekly use to
+`~/.claude-switch/usage-history.jsonl` (8 days kept). The pane fits a straight line through the
+readings of the current window (the last 90 minutes for 5 hours, the last day for the week, plus
+the sessions' own readings) and shows the pace: `ritmo 12%/h → tope ~16:40` when the cap comes
+before the reset, `ritmo 5%/h → ~70% al reinicio` otherwise. It needs two readings ten minutes
+apart; with less it shows nothing rather than guess.
+
+**Alerts.** A toast, once across sessions: a 5-hour cap the pace reaches within 45 minutes, a
+weekly cap within a day, a login that expires within 3 days, an account that turns logged out
+or reaches its cap, and one that is available again.
+
+**Pipeline.** `run-pipeline.ps1` writes `~/.claude-switch/pipeline.json` (`-StatusPath` to
+change it) after every cycle: repository, cycle, state (running, waiting for a reset, done,
+stopped), each role's task and outcome, and the retry time. The pane draws it as a PIPELINE box
+while it is less than 12 hours old.
+
+**Open from the pane.** A ready account's card has `+ abrir sesión en <name> aquí`: it runs
+`open-session.ps1 -Account <name> -Directory <this session's folder>` with the account's
+defaults, so the same cap and readiness checks apply. Accounts at a cap or logged out have no
+button: the pane never offers another account to get around a limit.
+
+### Usage report
+
+```powershell
+./scripts/usage-report.ps1 -Days 7     # one line per day and account: highest 5-hour use, weekly use, readings
+./scripts/usage-report.ps1 -Json
+```
+
 ### The `switch-account` skill
 
 `skills/switch-account/SKILL.md` is the single source of the Claude Code skill. If you do not say
@@ -330,9 +417,10 @@ fakes in `tests/fakes/`, and git runs against a local bare repository.
 
 ```powershell
 Invoke-Pester tests
+claude plugin test mod/switch-fleet   # the Fleet mod
 ```
 
-CI runs them on Ubuntu and Windows.
+CI runs the Pester tests on Ubuntu and Windows.
 
 ## License
 

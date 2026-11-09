@@ -24,6 +24,7 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $payload = [ordered]@{
     'SKILL.md'                = Join-Path $repo 'skills' 'switch-account' 'SKILL.md'
     'scripts/open-session.ps1' = Join-Path $repo 'scripts' 'open-session.ps1'
+    'scripts/usage-report.ps1' = Join-Path $repo 'scripts' 'usage-report.ps1'
     'src'                     = Join-Path $repo 'src'
 }
 foreach ($source in $payload.Values) {

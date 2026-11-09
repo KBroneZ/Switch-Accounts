@@ -1,0 +1,14 @@
+{
+  "name": "switch-accounts",
+  "description": "Switch-Accounts: tools for running several of your own Claude Code accounts. Holds the Fleet pane mod.",
+  "owner": {
+    "name": "KBroneZ"
+  },
+  "plugins": [
+    {
+      "name": "switch-fleet",
+      "source": "./mod/switch-fleet",
+      "description": "Fleet: a live pane of every Claude Code account you own and every session running on each."
+    }
+  ]
+}
