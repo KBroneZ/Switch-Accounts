@@ -3,7 +3,7 @@
 // priority with their controls, the pipeline, and the live sessions. The terminal keeps the text pane.
 import type { Elements } from 'claude-code'
 
-import type { AccountView, DeckView, FleetView, Forecast, Meter, PipelineView, SessionView, WorkerView } from '../types'
+import type { AccountView, DeckView, FleetView, Forecast, Meter, PipelineView, ProviderView, SessionView, WorkerView } from '../types'
 import { fmtSpan, fmtWhen, forecastText, shorten } from './core'
 import { contextSvg, meterSvg, phaseLabel } from './deck-view'
 
@@ -231,6 +231,39 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
     )
   }
 
+  const providerCard = (p: ProviderView) => {
+    const border = p.health === 'at-cap' ? C.bad : p.isStale ? C.faint : C.info
+    return (
+      <Box key={`prov-${p.id}`} flexDirection="column" borderStyle="round" borderColor={border} paddingX={1} width={HALF} flexGrow={1}>
+        <Box justifyContent="space-between" columnGap={1}>
+          <Text bold>
+            <Text color={C.info}>{p.name}</Text>
+            <Text color={C.dim}>{p.plan ? ` · ${p.plan}` : ''}</Text>
+            <Text color={C.dim}>{` · vía ${p.source}`}</Text>
+          </Text>
+          {p.health === 'at-cap' ? <Text color={C.bad}>✗ límite</Text> : p.health === 'ready' ? <Text color={C.ok}>● disponible</Text> : <Text color={C.dim}>? sin dato</Text>}
+        </Box>
+        {p.windows.map(w =>
+          w.pct === null ? (
+            <Text key={`pw-${p.id}-${w.label}`} color={C.dim}>
+              {w.label.padEnd(3)} reiniciada, sin dato nuevo
+            </Text>
+          ) : (
+            <Box key={`pw-${p.id}-${w.label}`} flexDirection="column">
+              <Text>
+                <Text color={C.dim}>{w.label.padEnd(3)} </Text>
+                <Text bold color={w.pct >= 100 ? C.bad : w.pct >= 90 ? C.warn : C.text}>{`${Math.round(w.pct)}%`}</Text>
+                <Text color={C.dim}>{w.resetsAt ? `  ↻${until(w.resetsAt)} (${fmtWhen(w.resetsAt, t, offset)})` : ''}</Text>
+              </Text>
+              <Svg source={meterSvg({ pct: w.pct, cap: null, resetsAt: w.resetsAt, isLive: false }, null, 260, 10)} alt={`${p.name} ${w.label}: ${Math.round(w.pct)}%`} />
+            </Box>
+          ),
+        )}
+        <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `leído hace ${fmtSpan(t - p.readAt)} (último uso de ${p.source})` : 'sin fecha de lectura'}</Text>
+      </Box>
+    )
+  }
+
   // ------------------------------------------------------------ tasks
 
   const taskCard = (w: WorkerView, n: number, threshold: number, canAct: boolean) => {
@@ -428,6 +461,7 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
       {view.accounts.length === 0 ? <Text color={C.dim}>Sin cuentas. Pulsa actualizar o ejecuta /fleet refresh.</Text> : null}
       <Box key="accounts" flexDirection="row" flexWrap="wrap" columnGap={1} rowGap={1}>
         {view.accounts.map(accountCard)}
+        {(view.providers ?? []).map(providerCard)}
       </Box>
       {rule('rule-1')}
       {tasksSection()}

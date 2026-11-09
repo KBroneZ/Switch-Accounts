@@ -239,7 +239,7 @@ export function buildFleet(
   now: number,
   selfId: string | null,
   history: History = new Map(),
-): Omit<FleetView, 'hub' | 'isRefreshing' | 'error' | 'pipeline'> {
+): Omit<FleetView, 'hub' | 'providers' | 'isRefreshing' | 'error' | 'pipeline'> {
   const shown = beats.filter(b => isShown(b, now))
   const byDir = new Map<string, Beat[]>()
   for (const b of shown) {

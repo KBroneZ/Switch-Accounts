@@ -2,6 +2,7 @@
 
 ## 0.5.0 — unreleased
 
+- ChatGPT in Fleet (switch-fleet 0.6.0): a card with ChatGPT's usage windows (percent used, reset, plan) read from the newest Codex session file under `~/.codex/sessions` (`CODEX_HOME` honoured). No credentials, no network; as fresh as the last Codex turn, marked stale after 6 hours. Also in the status line (`GPT 99%`) and in the once-per-window alerts at 90 % and at the limit.
 - Fleet Deck (switch-fleet 0.4.0): in the desktop app and the editor, `/fleet` draws SVG gauges per account (use, pace projection, cap tick), a lane per hub worker (phase, generation, context against the hand-over threshold, last answer) and, in hub sessions, controls to message, stop and open workers through the same checks as the `fleet_*` tools. The terminal keeps the text pane.
 - switch-fleet 0.5.1: `openOnStart` also opens the pane in the desktop app and the editor (they attach after start, so it opens at the first turn); the weekly-reset match allows /usage's rounding to the minute; a worker that finished and closed its tab shows as finished with its last answer.
 - Fleet Deck v2 (switch-fleet 0.5.0), laid out like Flightdeck: title and legend, account cards side by side, a task board of the hub's workers (title from the brief's first line, priority `alta`/`media`/`baja` set at open or from the card, open tasks first) and one sessions box. `fleet_open_worker` takes an optional `priority`.

@@ -172,8 +172,33 @@ export type DeckView = {
   isFormOpen: boolean
 }
 
+/** One usage window of another provider's subscription. */
+export type ProviderWindow = {
+  /** 5h, 7d, 30d: from the window's length. */
+  label: string
+  windowMinutes: number | null
+  /** Unknown (null) once its reset has passed, until the provider is read again. */
+  pct: number | null
+  resetsAt: string | null
+}
+
+/** Another AI subscription (ChatGPT through Codex), read from its own local files. */
+export type ProviderView = {
+  id: string
+  name: string
+  /** The tool its numbers come from (Codex). */
+  source: string
+  plan: string | null
+  windows: ProviderWindow[]
+  /** When the provider last reported them: its last turn. */
+  readAt: number | null
+  isStale: boolean
+  health: 'ready' | 'at-cap' | 'unknown'
+}
+
 export type FleetView = {
   accounts: AccountView[]
+  providers: ProviderView[]
   hub: HubView | null
   pipeline: PipelineView | null
   snapshotAt: string | null
