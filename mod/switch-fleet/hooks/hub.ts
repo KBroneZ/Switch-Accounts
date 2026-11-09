@@ -9,6 +9,8 @@ import { isShown, normPath, shorten } from './core'
 import {
   ABSOLUTE_PATH,
   appendInbox,
+  earlierLiveSession,
+  owesSuccessor,
   lastInboxSeq,
   briefPath,
   compactStatus,
@@ -219,6 +221,7 @@ async function openWorker($: EngineInterface, name: string, input: Record<string
     state: 'active',
     openedAt: now,
     claimedBy: null,
+    successorDue: null,
     // Mail left for an earlier run of this name (a stop request, say) is not this run's.
     mailFrom: lastInboxSeq(await $.fs.read(`${S.paths!.inbox}/${name}.jsonl`).then(String, () => '')),
     createdAt: existing?.createdAt ?? now,
@@ -238,36 +241,57 @@ async function openWorker($: EngineInterface, name: string, input: Record<string
 }
 
 /**
- * Opens the successor of each worker that asked for one, on the worker's own account, once that
- * account is ready. Runs in hub sessions only, from the poll timer; one successor per worker per pass.
+ * Notes each successor a worker asks for in its record, then opens every successor owed, on the
+ * worker's own account, once that account is ready. Runs in hub sessions only, from the poll timer.
  */
 export async function hubTick($: EngineInterface, accounts: AccountView[], beats: Beat[]) {
   if (!isHub() || !S.paths) return
   const now = await $.clock.now()
+  await noteSuccessorRequests($, beats, now)
+  await openOwedSuccessors($, accounts)
+}
+
+/** Writes `successorDue` for each shown heartbeat that asks for a successor (or adopts a tab already open). */
+async function noteSuccessorRequests($: EngineInterface, beats: Beat[], now: number) {
+  const live = beats.filter(b => isShown(b, now))
   const done = new Set<string>()
-  for (const beat of beats) {
+  for (const beat of live) {
     const name = beat.worker
-    if (!name || done.has(name) || S.opening.has(name) || (retryAfter.get(name) ?? 0) > now) continue
-    if (!isShown(beat, now)) continue
+    if (!name || done.has(name) || S.opening.has(name)) continue
     const record = await readRecord($, name)
     if (!record || !needsSuccessor(beat, record, S.cfg.hubAccount)) continue
     done.add(name)
     const newer = newerSession(beats, beat, record, now)
     if (newer) {
       // A tab opened by an earlier try that timed out: adopt it rather than open another.
-      await writeRecord($, { ...record, generation: record.generation + 1, openedAt: newer.startedAt, claimedBy: null }, true)
+      await writeRecord($, { ...record, generation: record.generation + 1, openedAt: newer.startedAt, claimedBy: null, successorDue: null }, true)
       continue
     }
+    if (earlierLiveSession(live, beat, record)) continue // not this generation's worker: no duplicate
+    if (record.successorDue !== record.generation) await writeRecord($, { ...record, successorDue: record.generation }, true)
+  }
+}
+
+/** Opens one successor per worker whose record says one is owed and whose account is ready. */
+async function openOwedSuccessors($: EngineInterface, accounts: AccountView[]) {
+  const entries = await $.fs.list(S.paths!.workers).catch(() => [])
+  const now = await $.clock.now()
+  for (const f of entries) {
+    if (f.kind !== 'file' || !f.name.endsWith('.json')) continue
+    const name = f.name.slice(0, -'.json'.length)
+    if (!WORKER_NAME.test(name) || S.opening.has(name) || (retryAfter.get(name) ?? 0) > now) continue
+    const record = await readRecord($, name)
+    if (!record || !owesSuccessor(record, S.cfg.hubAccount)) continue
     if (accountProblem(accounts, record.account)) continue // waits for its own account
     S.opening.add(name)
     try {
-      const next: WorkerRecord = { ...record, generation: record.generation + 1, openedAt: now }
+      const next: WorkerRecord = { ...record, generation: record.generation + 1, openedAt: now, successorDue: null }
       if (!(await claim($, next))) continue // another hub session took it
       await openTab($, next, null)
       await $.ui.toast(`Fleet: relevo ${next.generation} de ${name} abierto en la cuenta ${next.account}.`)
     } catch (err) {
       retryAfter.set(name, now + RETRY_MS)
-      // Back to the generation that asked, so the next try can claim it again.
+      // Back to the generation that asked, still owed, so the next try can claim it again.
       await writeRecord($, { ...record, claimedBy: null }, true).catch(() => undefined)
       S.lastError = shorten(`Relevo de ${name} no abierto: ${err instanceof Error ? err.message : String(err)}`, 200)
     } finally {

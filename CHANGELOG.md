@@ -5,6 +5,7 @@
 - Hub mode in the Fleet mod (0.3.0): sessions of the hub account (`hubAccount`, default A) get the tools `fleet_status`, `fleet_open_worker`, `fleet_send` and `fleet_stop_worker`. A worker is opened on a named account (never the hub's, never `auto`, only when that account is ready) with its brief in `~/.claude-switch/workers/`. At `rolloverPercent` of context (default 40) the worker writes a hand-over and the hub opens its next generation on the same account. At a limit the worker waits for its own account's reset and then goes on by itself. Messages go through `~/.claude-switch/inbox/` and reach a worker when it is idle.
 - `open-session.ps1 -WorkerName` (and `Open-ClaudeSession -WorkerName`): marks the tab as a Fleet worker (`SWITCH_FLEET_WORKER`); every other tab drops an inherited worker name.
 - A worker reopened under a name used before does not get the mail left for its earlier run (`mailFrom` in the worker record), and a record written from an earlier copy keeps a `fleet_stop_worker` that landed in between.
+- Hand-over hardening: a successor request is kept in the worker record (`successorDue`), so it is opened once the account is ready even after the asking tab has closed; a predecessor that comes back with a lost heartbeat never gets a second successor while the current generation runs; a worker stopped at a limit while a hand-over was owed is asked for the hand-over again when the window resets.
 
 ## 0.3.0 — unreleased
 

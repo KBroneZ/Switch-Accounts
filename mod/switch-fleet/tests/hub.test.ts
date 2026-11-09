@@ -3,6 +3,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Beat } from '../types'
 import {
   appendInbox,
+  earlierLiveSession,
+  owesSuccessor,
   compactStatus,
   inboxPrompt,
   lastInboxSeq,
@@ -62,6 +64,7 @@ const record = (over: Partial<WorkerRecord>): WorkerRecord => ({
   openedAt: NOW - 60_000,
   claimedBy: null,
   mailFrom: 0,
+  successorDue: null,
   createdAt: NOW,
   updatedAt: NOW,
   ...over,
@@ -99,6 +102,27 @@ describe('mailbox', () => {
     expect(parseWorker(JSON.stringify({ ...record({}), mailFrom: undefined }))?.mailFrom).toBe(0)
     box = appendInbox(box.text, 'hub', 'new task', NOW + 1)
     expect(pendingMessages(parseInbox(box.text), Math.max(0, mailFrom)).map(m => m.text)).toEqual(['new task'])
+  })
+})
+
+describe('owed successors', () => {
+  test('a request kept in the record is owed until opened or stopped, whatever the heartbeat', () => {
+    expect(owesSuccessor(record({ generation: 2, successorDue: 2 }), 'A')).toBe(true)
+    expect(owesSuccessor(record({ generation: 3, successorDue: 2 }), 'A')).toBe(false)
+    expect(owesSuccessor(record({ generation: 2, successorDue: 2, state: 'stopped' }), 'A')).toBe(false)
+    expect(owesSuccessor(record({ generation: 2, successorDue: 2, account: 'A' }), 'A')).toBe(false)
+    expect(owesSuccessor(record({}), 'A')).toBe(false)
+    expect(parseWorker(JSON.stringify(record({ successorDue: 4 })))?.successorDue).toBe(4)
+    expect(parseWorker(JSON.stringify({ ...record({}), successorDue: 'x' }))?.successorDue).toBeNull()
+  })
+
+  test('a predecessor back with a fresh start time does not pass as the current generation worker', () => {
+    const rec = record({ generation: 2, openedAt: NOW - 60_000 })
+    const current = beat({ sessionId: 'gen2', startedAt: NOW - 50_000 })
+    const reloaded = beat({ sessionId: 'gen1', startedAt: NOW, rollover: 'ready' })
+    expect(earlierLiveSession([current, reloaded], reloaded, rec)?.sessionId).toBe('gen2')
+    expect(earlierLiveSession([current, reloaded], current, rec)).toBeUndefined()
+    expect(earlierLiveSession([beat({ sessionId: 'gen2', startedAt: NOW - 50_000, state: 'ended' }), reloaded], reloaded, rec)).toBeUndefined()
   })
 })
 
