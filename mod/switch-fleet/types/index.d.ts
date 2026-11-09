@@ -119,8 +119,54 @@ export type PipelineView = {
   roles: PipelineRole[]
 }
 
+/** Where a hub worker is, read from its record and its current generation's heartbeat. */
+export type WorkerPhase = 'starting' | 'working' | 'idle' | 'waiting' | 'handover' | 'successor' | 'finished' | 'stopped' | 'gone'
+
+/** One hub worker as the Deck draws it. */
+export type WorkerView = {
+  name: string
+  account: string
+  directory: string
+  model: string | null
+  effort: string | null
+  generation: number
+  phase: WorkerPhase
+  /** Since when it is in this phase (the heartbeat's state change, or the record's open). */
+  since: number
+  tool: string | null
+  detail: string | null
+  ctxPct: number | null
+  costUsd: number | null
+  waitingUntil: string | null
+  lastReply: string | null
+}
+
+/** Hub mode as this session sees it. */
+export type HubView = {
+  hubAccount: string
+  /** This session is on the hub account: the Deck's controls act. */
+  isHub: boolean
+  rolloverPercent: number
+  /** The session's folder, offered for a new worker. */
+  cwd: string | null
+  workers: WorkerView[]
+}
+
+/** What the Deck's controls say back, and which control waits for a second press. */
+export type DeckView = {
+  note: string | null
+  isNoteError: boolean
+  /** A control still running (opening a worker can take minutes). */
+  busy: string | null
+  /** The worker whose stop button asks for a second press, and since when (it lapses). */
+  confirmStop: string | null
+  confirmAt: number | null
+  isFormOpen: boolean
+}
+
 export type FleetView = {
   accounts: AccountView[]
+  hub: HubView | null
   pipeline: PipelineView | null
   snapshotAt: string | null
   builtAt: number
@@ -132,6 +178,7 @@ declare module 'claude-code' {
   interface PluginState {
     'switch-fleet': {
       fleet: Shaped<FleetView | null>
+      deck: Shaped<DeckView>
     }
   }
 }

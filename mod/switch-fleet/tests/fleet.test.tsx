@@ -157,7 +157,7 @@ describe('core', () => {
     expect(fmtSpan(3 * 3_600_000 + 12 * 60_000)).toBe('3h12m')
     const fleet = buildFleet(parseSnapshot(snapshotText), [], NOW, null)
     expect(statusText(fleet)).toBe('fleet A 44% · B login!')
-    const before: FleetView = { ...fleet, pipeline: null, isRefreshing: false, error: null, accounts: fleet.accounts.map(a => ({ ...a, health: 'ready' as const })) }
+    const before: FleetView = { ...fleet, hub: null, pipeline: null, isRefreshing: false, error: null, accounts: fleet.accounts.map(a => ({ ...a, health: 'ready' as const })) }
     expect(healthChanges(before, fleet)).toEqual(['Cuenta B: login caducado'])
     expect(healthChanges(null, fleet)).toEqual([])
   })
@@ -172,9 +172,9 @@ const PANE = {
 
 test('the pane draws each account and its sessions, on every surface', async ($, on) => {
   const built = buildFleet(parseSnapshot(snapshotText), [beat({})], NOW, null)
-  const view: FleetView = { ...built, pipeline: null, isRefreshing: false, error: null }
+  const view: FleetView = { ...built, hub: null, pipeline: null, isRefreshing: false, error: null }
   on('clock.now', () => ({ value: NOW }))
-  on('state.get', () => ({ value: { value: { shape: 'fleet-3', value: view }, version: 1 } }))
+  on('state.get', () => ({ value: { value: { shape: 'fleet-4', value: view }, version: 1 } }))
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -215,9 +215,9 @@ describe('pipeline', () => {
 
   test('the pane draws the pipeline box and an open button for a ready account', async ($, on) => {
     const built = buildFleet(parseSnapshot(snapshotText), [], NOW, null)
-    const view: FleetView = { ...built, pipeline: parsePipeline(JSON.stringify(doc), NOW), isRefreshing: false, error: null }
+    const view: FleetView = { ...built, hub: null, pipeline: parsePipeline(JSON.stringify(doc), NOW), isRefreshing: false, error: null }
     on('clock.now', () => ({ value: NOW }))
-    on('state.get', () => ({ value: { value: { shape: 'fleet-3', value: view }, version: 1 } }))
+    on('state.get', () => ({ value: { value: { shape: 'fleet-4', value: view }, version: 1 } }))
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ ...PANE, surface })
       expect(await ui.find({ type: 'Text', text: /esperando reinicio/ })).toBeDefined()

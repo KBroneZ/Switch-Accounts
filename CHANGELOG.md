@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 — unreleased
+
+- Fleet Deck (switch-fleet 0.4.0): in the desktop app and the editor, `/fleet` draws SVG gauges per account (use, pace projection, cap tick), a lane per hub worker (phase, generation, context against the hand-over threshold, last answer) and, in hub sessions, controls to message, stop and open workers through the same checks as the `fleet_*` tools. The terminal keeps the text pane.
+
 ## 0.4.0 — unreleased
 
 - Hub mode in the Fleet mod (0.3.0): sessions of the hub account (`hubAccount`, default A) get the tools `fleet_status`, `fleet_open_worker`, `fleet_send` and `fleet_stop_worker`. A worker is opened on a named account (never the hub's, never `auto`, only when that account is ready) with its brief in `~/.claude-switch/workers/`. At `rolloverPercent` of context (default 40) the worker writes a hand-over and the hub opens its next generation on the same account. At a limit the worker waits for its own account's reset and then goes on by itself. Messages go through `~/.claude-switch/inbox/` and reach a worker when it is idle.
