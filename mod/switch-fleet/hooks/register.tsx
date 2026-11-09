@@ -15,7 +15,7 @@ import type { History } from './forecast'
 import { renderDeck, drafts, EMPTY_DECK } from './deck'
 import type { DeckActions, DeckElements, WorkerDraft } from './deck'
 import { buildWorkers } from './deck-view'
-import { hubTick, hubToolCall, isHub, registerHubTools } from './hub'
+import { hubTick, hubToolCall, isHub, registerHubTools, setWorkerPriority } from './hub'
 import { parseWorker, WORKER_NAME } from './hub-core'
 import type { WorkerRecord } from './hub-core'
 import type { HubTool } from './hub'
@@ -47,12 +47,19 @@ async function readBeats($: EngineInterface): Promise<Beat[]> {
 }
 
 /** Every hub worker record on disk (workers/<name>.json); briefs and hand-overs are skipped. */
-async function readWorkers($: EngineInterface): Promise<WorkerRecord[]> {
-  if (!S.paths) return []
+async function readWorkers($: EngineInterface): Promise<{ records: WorkerRecord[]; briefs: Map<string, string> }> {
+  if (!S.paths) return { records: [], briefs: new Map() }
   const entries = await $.fs.list(S.paths.workers).catch(() => [])
   const names = entries.filter(f => f.kind === 'file' && f.name.endsWith('.json')).map(f => f.name.slice(0, -'.json'.length)).filter(n => WORKER_NAME.test(n))
-  const records = await Promise.all(names.map(n => $.fs.read(`${S.paths!.workers}/${n}.json`).then(t => parseWorker(String(t)), () => null)))
-  return records.filter((r): r is WorkerRecord => r !== null)
+  const [records, briefs] = await Promise.all([
+    Promise.all(names.map(n => $.fs.read(`${S.paths!.workers}/${n}.json`).then(t => parseWorker(String(t)), () => null))),
+    // Only the head of a brief: the board shows its first line.
+    Promise.all(names.map(n => $.fs.read(`${S.paths!.workers}/${n}.brief.md`).then(t => [n, String(t).slice(0, 400)] as const, () => null))),
+  ])
+  return {
+    records: records.filter((r): r is WorkerRecord => r !== null),
+    briefs: new Map(briefs.filter((b): b is readonly [string, string] => b !== null)),
+  }
 }
 
 /** usage-history.jsonl, read again only when it changed (it grows with every -List). */
@@ -82,7 +89,7 @@ async function raiseAlerts($: EngineInterface, accounts: AccountView[], now: num
 
 async function rebuild($: EngineInterface) {
   if (!S.paths) return
-  const [text, beats, history, pipelineText, records, t] = await Promise.all([
+  const [text, beats, history, pipelineText, workers, t] = await Promise.all([
     $.fs.read(S.paths.status).then(String, () => null),
     readBeats($),
     readHistory($),
@@ -103,7 +110,7 @@ async function rebuild($: EngineInterface) {
     isHub: isHub(),
     rolloverPercent: S.cfg.rolloverPercent,
     cwd: S.beat?.cwd ?? null,
-    workers: buildWorkers(records, beats, S.cfg.hubAccount, t),
+    workers: buildWorkers(workers.records, beats, S.cfg.hubAccount, t, workers.briefs),
   }
   const view: FleetView = { ...built, hub, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
   // Redraw only when something a reader sees changed (builtAt alone does not count).
@@ -217,6 +224,12 @@ function deckActions($: EngineInterface): DeckActions {
           isDeckOpening = false
         }
       }),
+    setPriority: (worker, priority) =>
+      run(async () => {
+        const answer = await setWorkerPriority($, worker, priority)
+        await rebuild($)
+        await deckNote($, answer, !answer.startsWith(`${worker}:`) && !answer.includes('ya tiene'))
+      }),
     dismissNote: () => run(() => deckNote($, null)),
   }
 
@@ -225,6 +238,7 @@ function deckActions($: EngineInterface): DeckActions {
     const input: Record<string, unknown> = { account: draft.account, worker: draft.name, directory: draft.directory, brief: draft.brief }
     if (draft.model) input.model = draft.model
     if (draft.effort) input.effort = draft.effort
+    if (draft.priority) input.priority = draft.priority
     const answer = await deckHub($, 'fleet_open_worker', input)
     const isOpened = answer.startsWith(`Worker ${draft.name} abierto`)
     if (isOpened) drafts.worker = { ...drafts.worker, name: '', brief: '' }

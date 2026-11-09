@@ -127,9 +127,12 @@ export type PipelineView = {
 /** Where a hub worker is, read from its record and its current generation's heartbeat. */
 export type WorkerPhase = 'starting' | 'working' | 'idle' | 'waiting' | 'handover' | 'successor' | 'finished' | 'stopped' | 'gone'
 
-/** One hub worker as the Deck draws it. */
+/** One hub worker as the Deck draws it: a task on the board. */
 export type WorkerView = {
   name: string
+  /** The first line of its brief, as the task's title. */
+  title: string | null
+  priority: 'alta' | 'media' | 'baja'
   account: string
   directory: string
   model: string | null

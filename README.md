@@ -298,17 +298,26 @@ hub session at a time: two hub sessions could each open the same successor.
 ### Fleet Deck: the pane in the desktop app
 
 In the Claude Code desktop app (and the editor extension) `/fleet` draws the **Deck** instead of
-the text pane; the terminal keeps the text pane.
+the text pane; the terminal keeps the text pane. It is laid out like Flightdeck: a title with a
+legend (accounts, tasks, sessions), account cards side by side, the task board, the pipeline and
+the live sessions. With `openOnStart` on it opens as a tab beside the conversation when a
+session starts.
 
 - **Accounts:** a card per account with SVG bars for the 5-hour and weekly windows: the use so
   far, a fainter stretch to where the recent pace takes it by the reset, and a tick at the cap.
   Login, plan, reset times, the forecast line and the open-session button stay as they were.
-- **HUB:** a lane per worker: account, hand-over generation, phase (working with its tool,
-  waiting for its account's reset, writing its hand-over, successor pending, finished, stopped),
-  a context bar with a tick at `rolloverPercent`, its last answer and its folder.
-- **Controls, in sessions of the hub account only:** a field to message each worker, a stop
-  button that asks for a second press, and `+ nuevo worker` (account, name, folder, brief, model,
-  effort). They go through the same checks as the `fleet_*` tools: never the hub account, never
+- **Tasks:** each hub worker is a task card, titled by the first line of its brief and ranked
+  open first, then by priority (`alta`, `media`, `baja`; set when the worker opens, with the
+  `priority` field of `fleet_open_worker` or the form, and changed from the card). A card shows
+  the worker, account, model, hand-over generation, phase (working with its tool, waiting for its
+  account's reset, writing its hand-over, successor pending, finished, stopped), a context bar
+  with a tick at `rolloverPercent` and its last answer.
+- **Sessions:** every live session with its account, folder, what it does now, model, context
+  and cost. A session that spends another account's quota (read from its weekly reset) is marked
+  `usa la cuota de B`.
+- **Controls, in sessions of the hub account only:** a field to message each worker, its
+  priority, a stop button that asks for a second press, and `+ nueva tarea` (account, priority,
+  name, folder, brief, model, effort). They go through the same checks as the `fleet_*` tools: never the hub account, never
   `auto`, only an account that is ready. Sessions of other accounts see the lanes without controls.
 
 ### Usage report

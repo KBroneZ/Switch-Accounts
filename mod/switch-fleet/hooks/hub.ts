@@ -9,6 +9,7 @@ import { isShown, normPath, shorten } from './core'
 import {
   ABSOLUTE_PATH,
   appendInbox,
+  isPriority,
   earlierLiveSession,
   owesSuccessor,
   lastInboxSeq,
@@ -25,7 +26,7 @@ import {
   WORKER_NAME,
   workerStartPrompt,
 } from './hub-core'
-import type { WorkerRecord } from './hub-core'
+import type { Priority, WorkerRecord } from './hub-core'
 import { runScript, S } from './shared'
 
 const OPEN_TIMEOUT_MS = 180_000
@@ -63,6 +64,7 @@ export async function registerHubTools($: EngineInterface) {
         worktree: { type: 'string', description: 'Optional branch for a new worktree under <directory>/.claude/worktrees.' },
         model: { type: 'string', description: 'Optional: opus, sonnet, haiku, fable or a claude-* id.' },
         effort: { type: 'string', description: 'Optional: low, medium, high, xhigh or max.' },
+        priority: { type: 'string', enum: ['alta', 'media', 'baja'], description: 'Optional task priority shown in the Fleet pane (default media).' },
       },
       required: ['account', 'worker', 'directory', 'brief'],
       additionalProperties: false,
@@ -194,6 +196,9 @@ async function openWorker($: EngineInterface, name: string, input: Record<string
   const worktree = field(input, 'worktree') || null
   const model = field(input, 'model') || null
   const effort = field(input, 'effort') || null
+  const priorityIn = field(input, 'priority')
+  if (priorityIn && !isPriority(priorityIn)) return 'priority debe ser alta, media o baja.'
+  const priority: Priority = isPriority(priorityIn) ? priorityIn : 'media'
   if (!isWorkerAccount(account, S.cfg.hubAccount)) {
     return `Nombra una cuenta de trabajo concreta (p. ej. B): ni "auto" ni la del hub (${S.cfg.hubAccount}).`
   }
@@ -218,6 +223,7 @@ async function openWorker($: EngineInterface, name: string, input: Record<string
     model,
     effort,
     generation: 1,
+    priority,
     state: 'active',
     openedAt: now,
     claimedBy: null,
@@ -238,6 +244,18 @@ async function openWorker($: EngineInterface, name: string, input: Record<string
     await writeRecord($, { ...record, state: 'stopped' }).catch(() => undefined)
     return `No se abrió el worker ${name}: ${err instanceof Error ? err.message : String(err)}`
   }
+}
+
+/** The Deck's priority control: hub sessions only, an existing worker, one of the three values. */
+export async function setWorkerPriority($: EngineInterface, name: string, priority: string): Promise<string> {
+  if (!S.paths) return 'Fleet aún no ha arrancado en esta sesión.'
+  if (!isHub()) return `Solo el hub (cuenta ${S.cfg.hubAccount}) cambia prioridades.`
+  if (!WORKER_NAME.test(name) || !isPriority(priority)) return 'Prioridad o worker no válidos.'
+  const record = await readRecord($, name)
+  if (!record) return `No hay ningún worker ${name}.`
+  if (record.priority === priority) return `${name} ya tiene prioridad ${priority}.`
+  await writeRecord($, { ...record, priority }, true)
+  return `${name}: prioridad ${priority}.`
 }
 
 /**

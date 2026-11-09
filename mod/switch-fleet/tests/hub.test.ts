@@ -60,6 +60,7 @@ const record = (over: Partial<WorkerRecord>): WorkerRecord => ({
   model: null,
   effort: null,
   generation: 1,
+  priority: 'media',
   state: 'active',
   openedAt: NOW - 60_000,
   claimedBy: null,
