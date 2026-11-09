@@ -6,6 +6,7 @@ import {
   earlierLiveSession,
   owesSuccessor,
   compactStatus,
+  directorNote,
   inboxPrompt,
   lastInboxSeq,
   limitStop,
@@ -191,14 +192,38 @@ describe('limits and hand-over', () => {
 describe('hub status', () => {
   test('one line per account and per session, with the hub-mode state', () => {
     const text = compactStatus(
-      [{ name: 'B', health: 'ready', reason: null, fiveHour: { pct: 30, cap: 100, resetsAt: '2030-01-01T15:00:00Z' }, weekly: { pct: 5 } }],
+      [
+        { name: 'B', plan: 'pro', health: 'ready', reason: null, fiveHour: { pct: 30, cap: 100, resetsAt: '2030-01-01T15:00:00Z' }, weekly: { pct: 5, cap: 98, resetsAt: '2030-01-05T09:00:00Z' } },
+        { name: 'C', plan: null, health: 'unknown', reason: 'sin dato', fiveHour: { pct: null, cap: null, resetsAt: null }, weekly: { pct: null, cap: null, resetsAt: null } },
+      ],
       [beat({ state: 'working', tool: 'Bash', detail: 'npm test', ctxPct: 41, rollover: 'requested', updatedAt: NOW - 3_000 })],
       () => 'B',
       NOW,
     )
     expect(text.split('\n')).toEqual([
-      'cuenta B: ready · 5h 30%/100 · semana 5% reinicio 2030-01-01T15:00:00Z',
+      'cuenta B (pro): ready · 5h 30%/100 (reinicio 2030-01-01T15:00:00Z) · semana 5%/98 (reinicio 2030-01-05T09:00:00Z)',
+      'cuenta C: unknown (sin dato) · 5h ? · semana ?',
       'worker w1 · [B] · app · working · Bash: npm test · ctx 41% · relevo requested · hace 3s',
     ])
+  })
+})
+
+describe('director note', () => {
+  const base = { isHub: true, worker: null, turns: 0, isEnabled: true, isCommand: false, isMeta: false, hubAccount: 'A' }
+
+  test('the first prompt of a hub session asks for the fleet-director skill', () => {
+    const note = directorNote(base)!
+    expect(note).toContain('fleet-director')
+    expect(note).toContain('cuenta A')
+    expect(note).toContain('trivial')
+  })
+
+  test('nothing in a worker, a non-hub session, a later turn, a command, a meta prompt or when turned off', () => {
+    expect(directorNote({ ...base, isHub: false })).toBeNull()
+    expect(directorNote({ ...base, worker: 'w1' })).toBeNull()
+    expect(directorNote({ ...base, turns: 1 })).toBeNull()
+    expect(directorNote({ ...base, isCommand: true })).toBeNull()
+    expect(directorNote({ ...base, isMeta: true })).toBeNull()
+    expect(directorNote({ ...base, isEnabled: false })).toBeNull()
   })
 })

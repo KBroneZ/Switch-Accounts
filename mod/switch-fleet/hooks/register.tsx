@@ -17,7 +17,7 @@ import { renderDeck, drafts, EMPTY_DECK } from './deck'
 import type { DeckActions, DeckElements, WorkerDraft } from './deck'
 import { buildWorkers } from './deck-view'
 import { hubTick, hubToolCall, isHub, registerHubTools, setWorkerPriority } from './hub'
-import { parseWorker, WORKER_NAME } from './hub-core'
+import { directorNote, parseWorker, WORKER_NAME } from './hub-core'
 import { newestFirst, parseCodexRollout, providerAlerts, providerStatus } from './providers'
 import { maybeAskGemini, readGemini } from './gemini'
 import type { WorkerRecord } from './hub-core'
@@ -173,7 +173,7 @@ async function rebuild($: EngineInterface) {
     const line = [statusText(built), ...providerStatus(providers)].filter(Boolean).join(' · ')
     await $.ui.status(line || undefined)
   }
-  return { accounts: built.accounts, beats }
+  return { accounts: built.accounts, beats, providers }
 }
 
 /** Runs `open-session.ps1 -List` when status.json is older than refreshMinutes (or when forced). */
@@ -220,7 +220,7 @@ async function tick($: EngineInterface) {
 /** A hub tool call: answered from a fresh look at the files. */
 async function answerHubTool($: EngineInterface, tool: HubTool, input: Record<string, unknown>) {
   const seen = await rebuild($)
-  const text = await hubToolCall($, tool, input, seen?.accounts ?? [], seen?.beats ?? [])
+  const text = await hubToolCall($, tool, input, seen?.accounts ?? [], seen?.beats ?? [], seen?.providers ?? [])
   return { result: text }
 }
 
@@ -232,7 +232,7 @@ async function deckNote($: EngineInterface, note: string | null, isError = false
 /** A Deck control that acts as the hub: the same checks as the model's fleet_* tools. */
 async function deckHub($: EngineInterface, tool: HubTool, input: Record<string, unknown>): Promise<string> {
   const seen = await rebuild($)
-  const text = await hubToolCall($, tool, input, seen?.accounts ?? [], seen?.beats ?? [])
+  const text = await hubToolCall($, tool, input, seen?.accounts ?? [], seen?.beats ?? [], seen?.providers ?? [])
   await rebuild($)
   return text
 }
@@ -425,6 +425,24 @@ export const register: Register = (on, options) => {
       await setBeat($, { state: 'working', tool: null, detail: null, prompt, model: await $.session.model().catch(() => S.beat?.model ?? null) }, true)
     }
     return next(e)
+  })
+
+  // The first prompt of a hub session carries a note: share the work out with the fleet-director skill.
+  on('prompt.submit', async ($, e, next) => {
+    const note = S.hasDirectorNote
+      ? null
+      : directorNote({
+          isHub: isHub(),
+          worker: S.beat?.worker ?? null,
+          turns: S.beat?.turns ?? 1,
+          isEnabled: S.cfg.director,
+          isCommand: e.command !== undefined,
+          isMeta: e.isMeta === true,
+          hubAccount: S.cfg.hubAccount,
+        })
+    if (!note) return next(e)
+    S.hasDirectorNote = true
+    return next({ ...e, context: [...(e.context ?? []), note] })
   })
 
   on('tool.call', async ($, e, next) => {

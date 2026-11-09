@@ -129,6 +129,21 @@ export function providerView(who: ProviderId, plan: string | null, windows: Prov
   return { ...who, plan, windows, readAt, isStale: readAt === null || now - readAt > STALE_MS, health }
 }
 
+const HEALTH_WORD: Record<ProviderView['health'], string> = { ready: 'disponible', 'at-cap': 'en su límite', unknown: 'sin dato' }
+
+/** How long ago, for the hub's model: `0 min`, `42 min`, `6 h`. */
+const ageText = (ms: number) => (ms < 3_600_000 ? `${Math.max(0, Math.floor(ms / 60_000))} min` : `${Math.floor(ms / 3_600_000)} h`)
+
+/** One line per provider for `fleet_status`: health, every window with its reset, and how old the reading is. */
+export function providerLines(providers: ProviderView[], now: number): string[] {
+  return providers.map(p => {
+    const head = `${p.name} (vía ${p.source}${p.plan ? `, plan ${p.plan}` : ''}): ${HEALTH_WORD[p.health]}`
+    const windows = p.windows.map(w => (w.pct === null ? `${w.label} ?` : `${w.label} ${Math.round(w.pct)}%${w.resetsAt ? ` (reinicio ${w.resetsAt})` : ''}`))
+    const read = p.readAt === null ? 'sin fecha de lectura' : `leído hace ${ageText(now - p.readAt)}${p.isStale ? ' (antiguo)' : ''}`
+    return [head, ...windows, read].join(' · ')
+  })
+}
+
 /** The part of the status line for each provider: `GPT 99%`. */
 export function providerStatus(providers: ProviderView[]): string[] {
   return providers.map(p => {

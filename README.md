@@ -360,13 +360,45 @@ script. Triggers: `/switch-account`, "cambiar de cuenta", "abre otra sesión", "
 "me quedé sin tokens". Install (or update) it with:
 
 ```powershell
-./scripts/install-skill.ps1 -WhatIf   # see where it goes
-./scripts/install-skill.ps1           # copies SKILL.md, the wrapper and the module to ~/.claude/skills/switch-account
+./scripts/install-skill.ps1 -WhatIf   # see where they go
+./scripts/install-skill.ps1           # ~/.claude/skills/switch-account (SKILL.md, wrapper, module) and ~/.claude/skills/fleet-director
 ```
 
-The previous skill is moved to `~/.claude/backups/switch-account-<time>` first. A second account
-whose `skills` folder is linked to the first by `Initialize-SecondaryAccount` gets the skill
+Each previous skill is moved to `~/.claude/backups/<skill>-<time>` first. A second account
+whose `skills` folder is linked to the first by `Initialize-SecondaryAccount` gets the skills
 through that link. Run the installer again after pulling a new version.
+
+### The `fleet-director` skill: who does what
+
+In a hub session the director plans the work before anyone starts it. It splits the request into
+tasks and gives each one a level (`alto`, `medio`, `bajo`), an effort, a priority and an executor:
+the hub session itself, a worker on another of your Claude accounts, ChatGPT (through Codex, the
+`ask-chatgpt` skill) or Gemini (through Antigravity's CLI). It reads every subscription's state
+from `fleet_status`, shows the plan as a table and launches nothing until you approve it.
+
+- **Routing table.** `skills/fleet-director/director.default.json`: the executors, the options for
+  each level in order of preference (Claude Opus, GPT-6 luna and Claude Opus through Antigravity
+  for `alto`; Sonnet, GPT-6 luna high, Sonnet or Gemini Flash high through Antigravity for `medio`;
+  Gemini Flash, Haiku, GPT-OSS for `bajo`), task types (web research and second opinions go to
+  ChatGPT, long logs and summaries to Gemini, design and hard bugs stay with Claude) and effort by
+  complexity. Copy it to `~/.claude-switch/director.json` to change it.
+- **At a cap.** A task planned for a Claude account at its cap goes to another provider's option
+  of the same level. If none is left, a five-hour cap waits for its reset and a weekly cap leaves
+  the task pending. It never moves to your other Claude account.
+- **Read-only for now.** ChatGPT and Gemini answer questions and review; they do not change the
+  repository. `scripts/ask-gemini.ps1` runs `agy -p` in plan mode with its sandbox on (Gemini reads
+  the project folder, its writes and commands are refused), blocks prompts that look like they carry
+  a secret, and saves the answer marked `estado: SIN VERIFICAR` for Claude to check.
+- **Limits.** `skills/fleet-director/LIMITS.md` tells the hub what each executor can and cannot do
+  (a worker knows only its brief and waits on permission prompts in its tab; ChatGPT cannot read the
+  repository on this machine; Gemini cannot run commands and costs ~50 K tokens a call), what only you
+  can do (sign-ins, trusting folders, merges), and what every brief must carry to get finished. The
+  plan lists the steps that are yours under "lo que tienes que hacer tú".
+- **Starting it.** Add to a project's `CLAUDE.md`:
+  `- Al empezar una conversación en la cuenta hub, usa la skill fleet-director para repartir el trabajo antes de empezar.`
+  The `switch-fleet` mod also adds a note to the first prompt of every hub session (option
+  `director`, on by default), so it starts even where the line is missing. Trivial requests are
+  done at once, without a plan.
 
 ## The task queue
 
