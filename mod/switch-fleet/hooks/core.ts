@@ -106,6 +106,12 @@ export function parseBeat(text: string): Beat | null {
       ? { fiveHour: num(l.fiveHour), fiveHourResetsAt: str(l.fiveHourResetsAt), weekly: num(l.weekly), weeklyResetsAt: str(l.weeklyResetsAt) }
       : null,
     limitsAt: l ? num(doc.limitsAt) : null,
+    worker: str(doc.worker) && /^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$/.test(String(doc.worker)) ? String(doc.worker) : null,
+    rollover: doc.rollover === 'requested' || doc.rollover === 'ready' ? doc.rollover : 'none',
+    rolloverAt: num(doc.rolloverAt),
+    waitingUntil: str(doc.waitingUntil),
+    lastReply: str(doc.lastReply),
+    finished: doc.finished === true,
     turns: num(doc.turns) ?? 0,
     startedAt: num(doc.startedAt) ?? updatedAt,
     stateSince: num(doc.stateSince) ?? updatedAt,
@@ -182,6 +188,10 @@ function healthOf(a: SnapshotAccount | null, five: Meter, week: Meter): { health
 function sessionView(b: Beat, now: number, selfId: string | null): SessionView {
   return {
     id: b.sessionId,
+    worker: b.worker,
+    rollover: b.rollover,
+    waitingUntil: b.waitingUntil,
+    lastReply: b.lastReply,
     isSelf: b.sessionId === selfId,
     liveness: now - b.updatedAt > QUIET_MS && b.sessionId !== selfId ? 'quiet' : 'live',
     state: b.state,

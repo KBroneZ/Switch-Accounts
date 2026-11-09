@@ -195,7 +195,7 @@ Describe 'New-LaunchCommand' {
         $commands = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
         # Only the fixed commands of the script exist; nothing comes from the prompt.
         @($commands | ForEach-Object { $_.GetCommandName() }) |
-            Should -Be @('Get-ChildItem', 'Where-Object', 'ForEach-Object', 'Remove-Item', 'Set-Location', 'C:\bin\claude.exe')
+            Should -Be @('Get-ChildItem', 'Where-Object', 'ForEach-Object', 'Remove-Item', 'Remove-Item', 'Set-Location', 'C:\bin\claude.exe')
         $last = Get-LastCommand $launch.Script
         $last.CommandElements.Count | Should -Be 2
         $last.CommandElements[1].Value | Should -BeExactly $evil

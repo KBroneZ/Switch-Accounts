@@ -241,7 +241,8 @@ Plugins, Add marketplace with `KBroneZ/Switch-Accounts`, then Add plugin. While 
 | `/fleet close` | close it |
 | `1`, `2`, ... in the pane | open a Claude Code tab on that account, in this session's folder |
 
-Options (`/config`): `scriptPath`, `refreshMinutes`, `openOnStart`, `statusLine`. Its tests run
+Options (`/config`): `scriptPath`, `refreshMinutes`, `openOnStart`, `statusLine`, `rolloverPercent`,
+`hubAccount`. Its tests run
 with `claude plugin test mod/switch-fleet`.
 
 **Forecast.** `-List` appends each account's 5-hour and weekly use to
@@ -264,6 +265,35 @@ while it is less than 12 hours old.
 `open-session.ps1 -Account <name> -Directory <this session's folder>` with the account's
 defaults, so the same cap and readiness checks apply. Accounts at a cap or logged out have no
 button: the pane never offers another account to get around a limit.
+
+### Hub mode: one account coordinates, the others work
+
+For the way of working where one account is the hub (it plans, opens sessions and checks on
+them, spending little) and the other accounts do the work. The hub is the account named
+`hubAccount` (default `A`); every other account can carry workers.
+
+1. In a session of the hub account, ask for a worker in your own words ("abre un worker en B para
+   el issue 123 en D:\Horizon\horizon, con este encargo: ..."). The hub calls
+   `fleet_open_worker`: it saves the brief to `~/.claude-switch/workers/<name>.brief.md` and opens
+   a terminal tab on that account (through `open-session.ps1 -WorkerName`, so caps, login and
+   folder trust are checked as always). A new worktree is optional.
+2. The worker shows in `/fleet` as `[w1]`. The hub reads everything with `fleet_status` (one
+   short line per account and session) and talks to a worker with `fleet_send`: the message
+   reaches the worker as a prompt as soon as it is idle.
+3. **Hand-over.** When a worker's context passes `rolloverPercent` (default 40 %), its own mod
+   asks it to finish the step and write `workers/<name>.handover.md`. The hub then opens the next
+   generation of that worker **on the same account**, which reads the brief and the hand-over and
+   goes on. Messages not yet taken go to the new one.
+4. **Limits.** When a worker's account reaches its limit, the worker waits and, a minute and a
+   half after that account's own reset, tells itself to go on. A hand-over due while its account
+   is at a limit waits too. The hub never opens a worker on the hub account and never moves a
+   worker to another account to get around a limit: that would be rotating accounts, which this
+   tool does not do.
+5. `fleet_stop_worker` asks a worker to finish its step, write its hand-over and stop, with no
+   successor.
+
+Everything stays in local files under `~/.claude-switch/` (`workers/`, `inbox/`, `live/`). Run one
+hub session at a time: two hub sessions could each open the same successor.
 
 ### Usage report
 

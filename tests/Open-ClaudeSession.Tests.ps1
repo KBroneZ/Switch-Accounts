@@ -336,7 +336,7 @@ Describe 'Open-ClaudeSession' {
 
             $ast = [System.Management.Automation.Language.Parser]::ParseInput($result.Sessions[0].Script, [ref]$null, [ref]$null)
             $names = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() }
-            $names | Should -Be @('Get-ChildItem', 'Where-Object', 'ForEach-Object', 'Remove-Item', 'Set-Location', $names[-1])
+            $names | Should -Be @('Get-ChildItem', 'Where-Object', 'ForEach-Object', 'Remove-Item', 'Remove-Item', 'Set-Location', $names[-1])
             $result.Sessions[0].WtArguments | Where-Object { $_ -like '*;*' } | Should -BeNullOrEmpty
         }
 
@@ -426,5 +426,39 @@ Describe 'Open-ClaudeSession' {
             (Open-Test $f -Arguments @{ PrintOnly = $true; Model = 'opus'; Effort = 'max'; RemoteControl = $true }).Sessions[0].Script |
                 Should -Not -Match 'dangerously|skip-permissions|bypass'
         }
+    }
+}
+
+Describe 'Open-ClaudeSession -WorkerName' {
+    BeforeEach {
+        Mock -ModuleName SwitchAccounts Start-TerminalTab {}
+    }
+
+    It 'marks the tab as a Fleet worker and titles it by worker and account' {
+        $f = New-Fixture @(@{ Name = 'A' }, @{ Name = 'B' })
+
+        $result = Open-Test $f -Arguments @{ Account = 'B'; WorkerName = 'w1'; PrintOnly = $true }
+
+        $result.Title | Should -Be 'w1 · B'
+        $result.Sessions[0].Script | Should -Match ([regex]::Escape("`$env:SWITCH_FLEET_WORKER = 'w1'"))
+    }
+
+    It 'removes an inherited worker name from a tab that is no worker' {
+        $f = New-Fixture @(@{ Name = 'A' })
+
+        $result = Open-Test $f -Arguments @{ Account = 'A'; PrintOnly = $true }
+
+        $result.Sessions[0].Script | Should -Match 'Remove-Item Env:SWITCH_FLEET_WORKER'
+    }
+
+    It 'refuses a bad worker name and a worker name with several tabs' -TestCases @(
+        @{ Arguments = @{ Account = 'A'; WorkerName = '-x' } }
+        @{ Arguments = @{ Account = 'A'; WorkerName = 'w 1' } }
+        @{ Arguments = @{ Account = 'A'; WorkerName = 'w1'; Count = 2 } }
+    ) {
+        $f = New-Fixture @(@{ Name = 'A' })
+        $all = @{ PrintOnly = $true } + $Arguments
+
+        { Open-Test $f -Arguments $all } | Should -Throw -ErrorId 'SwitchAccounts.InvalidArgument'
     }
 }

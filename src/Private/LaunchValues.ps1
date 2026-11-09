@@ -61,6 +61,17 @@ function ConvertTo-SessionLabel {
     $label
 }
 
+function ConvertTo-WorkerName {
+    <# A Fleet worker name (w1, fork-2, ...): 1-30 letters, digits, . _ -, starting with a letter or digit. $null when empty. #>
+    param([AllowNull()] [AllowEmptyString()] [string] $Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $name = $Value.Trim()
+    if ($name -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$') {
+        Stop-WithSwitchError InvalidArgument '-WorkerName must be 1-30 letters, digits, . _ - and start with a letter or digit.'
+    }
+    $name
+}
+
 function Assert-InitialPrompt {
     <# Returns the prompt or $null. Control characters (except newline and tab) and a leading '-' are refused. #>
     param([AllowNull()] [AllowEmptyString()] [string] $Value)

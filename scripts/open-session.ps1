@@ -9,6 +9,7 @@
                       readiness, and save them to status.json beside accounts.json (the Fleet pane reads it)
     -ShowConfig       print ~/.claude-switch/accounts.json (created with defaults when missing)
     -Json             print the result object as JSON instead of the summary line
+    -WorkerName       mark the tab as a Fleet worker (hub mode of the switch-fleet mod)
 
     -ConfigPath and -ClaudePath only work when SWITCH_ACCOUNTS_ALLOW_OVERRIDES=1 (the tests set it):
     a caller that can pass them could make the script run any program.
@@ -34,6 +35,7 @@ param(
     [string] $InitialPrompt,
     [string] $Title,
     [string] $Worktree,
+    [string] $WorkerName,
     [string] $Count = '1',
     [switch] $PrintOnly,
     [switch] $TrustDirectory,
@@ -101,7 +103,7 @@ try {
             'SwitchAccounts.InvalidArgument', 'InvalidArgument', $null)
     }
     $openArgs = $common.Clone()
-    foreach ($name in 'Account', 'Directory', 'Model', 'Effort', 'SubagentModel', 'SessionName', 'InitialPrompt', 'Title', 'Worktree') {
+    foreach ($name in 'Account', 'Directory', 'Model', 'Effort', 'SubagentModel', 'SessionName', 'InitialPrompt', 'Title', 'Worktree', 'WorkerName') {
         if ($PSBoundParameters.ContainsKey($name)) { $openArgs[$name] = $PSBoundParameters[$name] }
     }
     foreach ($name in 'RemoteControl', 'PrintOnly', 'TrustDirectory', 'NoUsageCheck') {

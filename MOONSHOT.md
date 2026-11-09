@@ -90,6 +90,11 @@ Flightdeck vigila **una** sesión. Fleet Control vigila **la flota**.
 - Informe semanal; uso por proyecto.
 - Plugin de marketplace (skill + mod + módulo), lanzadores multiplataforma.
 
+### Fase 7 — Modo hub (añadida 2026-11-09)
+- La cuenta hub (A) planifica y abre workers en las otras cuentas, cada uno en su cuenta fija.
+- Relevo al 40 % de contexto en la misma cuenta; espera al reinicio de su propia cuenta al llegar al
+  límite y sigue sola. Buzón local para hablar con los workers.
+
 ## Estado
 
 | Fase | Estado |
@@ -99,4 +104,5 @@ Flightdeck vigila **una** sesión. Fleet Control vigila **la flota**.
 | 3 | hecha: panel `/fleet` v1 (falta: avisos de login a 3 días como toast) |
 | 4 | hecha: historial de 8 días, ritmo y hora de tope por ventana, avisos únicos |
 | 5 | hecha: botón abrir sesión por cuenta, caja PIPELINE |
+| 7 | hecha: herramientas `fleet_*`, relevo, espera al reinicio, buzón |
 | 6 | hecha en parte: informe diario y marketplace del plugin. Falta: lanzadores tmux/iTerm (Open-ClaudeSession solo conoce Windows Terminal) |

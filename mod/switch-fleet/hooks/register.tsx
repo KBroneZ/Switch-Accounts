@@ -9,9 +9,13 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { AccountView, Beat, FleetView, Meter, PipelineView, SessionView } from '../types'
-import { alertsFor, buildFleet, parsePipeline, fmtSpan, fmtWhen, forecastText, gauge, healthChanges, limitsFrom, maskSecrets, parseBeat, parseSnapshot, shorten, statusText, toolDetail } from './core'
+import { alertsFor, buildFleet, parsePipeline, fmtSpan, fmtWhen, forecastText, gauge, healthChanges, maskSecrets, normPath, parseBeat, parseSnapshot, shorten, statusText, toolDetail } from './core'
 import { parseHistory } from './forecast'
 import type { History } from './forecast'
+import { hubTick, hubToolCall, registerHubTools } from './hub'
+import type { HubTool } from './hub'
+import { parseConfig, pathsOf, readUsage, S, setBeat, writeBeat } from './shared'
+import { carryOver, workerName, workerTick, workerTurnDone } from './worker'
 
 const PANE = 'switch-fleet'
 const TITLE = 'Fleet'
@@ -24,87 +28,6 @@ const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { sh
 /** Alerts already shown, kept across sessions so each one is toasted once. */
 const ALERTED_KEY = 'alerted'
 const MAX_ALERTED = 100
-
-type Config = { scriptPath: string; refreshMs: number; openOnStart: boolean; statusLine: boolean }
-
-function parseConfig(options: Record<string, unknown>): Config {
-  const minutes = typeof options.refreshMinutes === 'number' ? options.refreshMinutes : 5
-  return {
-    scriptPath: typeof options.scriptPath === 'string' ? options.scriptPath.trim() : '',
-    refreshMs: Math.min(60, Math.max(1, minutes)) * 60_000,
-    openOnStart: options.openOnStart === true,
-    statusLine: options.statusLine !== false,
-  }
-}
-
-type Paths = { dir: string; live: string; status: string; history: string; pipeline: string; lock: string; defaultConfigDir: string; script: string }
-
-async function pathsOf($: EngineInterface, cfg: Config): Promise<Paths> {
-  const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '.'
-  const dir = `${home}/.claude-switch`
-  return {
-    dir,
-    live: `${dir}/live`,
-    status: `${dir}/status.json`,
-    history: `${dir}/usage-history.jsonl`,
-    pipeline: `${dir}/pipeline.json`,
-    lock: `${dir}/refresh.lock`,
-    defaultConfigDir: `${home}/.claude`,
-    script: cfg.scriptPath || `${home}/.claude/skills/switch-account/scripts/open-session.ps1`,
-  }
-}
-
-// Module state: the heartbeat being built and whether it needs writing. A reload starts it over,
-// and the next event or the idle timer writes a fresh one.
-const S: {
-  cfg: Config
-  paths: Paths | null
-  beat: Beat | null
-  isDirty: boolean
-  isRefreshing: boolean
-  hasTimers: boolean
-  lastError: string | null
-  history: History
-  historyMtime: number
-} = {
-  cfg: parseConfig({}),
-  paths: null,
-  beat: null,
-  isDirty: false,
-  isRefreshing: false,
-  hasTimers: false,
-  lastError: null,
-  history: new Map(),
-  historyMtime: -1,
-}
-
-async function writeBeat($: EngineInterface) {
-  if (!S.beat || !S.paths) return
-  S.beat = { ...S.beat, updatedAt: await $.clock.now() }
-  S.isDirty = false
-  await $.fs.write(`${S.paths.live}/${S.beat.sessionId}.json`, JSON.stringify(S.beat)).catch(() => undefined)
-}
-
-async function setBeat($: EngineInterface, patch: Partial<Beat>, flush: boolean) {
-  if (!S.beat) return
-  const t = await $.clock.now()
-  const next: Beat = { ...S.beat, ...patch }
-  if (patch.state && patch.state !== S.beat.state) next.stateSince = t
-  S.beat = next
-  S.isDirty = true
-  if (flush) await writeBeat($)
-}
-
-async function readUsage($: EngineInterface): Promise<Partial<Beat>> {
-  const u = await $.session.usage().catch(() => null)
-  if (!u) return {}
-  const limits = limitsFrom(u.rateLimits)
-  return {
-    ctxPct: u.context.percent ?? null,
-    costUsd: u.cost?.usd ?? null,
-    ...(limits ? { limits, limitsAt: await $.clock.now() } : {}),
-  }
-}
 
 async function readBeats($: EngineInterface): Promise<Beat[]> {
   if (!S.paths) return []
@@ -151,6 +74,10 @@ async function rebuild($: EngineInterface) {
     $.clock.now(),
   ])
   const snapshot = text ? parseSnapshot(text) : null
+  if (snapshot && S.beat) {
+    const mine = normPath(S.beat.configDir)
+    S.account = snapshot.accounts.find(a => normPath(a.configDir) === mine)?.name ?? null
+  }
   const built = buildFleet(snapshot, beats, t, S.beat?.sessionId ?? null, history)
   const before = await read($, fleet)
   const pipeline = pipelineText ? parsePipeline(pipelineText, t) : null
@@ -161,7 +88,7 @@ async function rebuild($: EngineInterface) {
   for (const msg of healthChanges(before, built)) await $.ui.toast(msg)
   await raiseAlerts($, built.accounts, t)
   if (S.cfg.statusLine) await $.ui.status(statusText(built))
-  return snapshot
+  return { accounts: built.accounts, beats }
 }
 
 /** Runs `open-session.ps1 -List` when status.json is older than refreshMinutes (or when forced). */
@@ -198,7 +125,16 @@ async function maybeRefresh($: EngineInterface, force: boolean) {
 /** One poll: write the heartbeat when it changed (or every minute while idle), then redraw. */
 async function tick($: EngineInterface) {
   if (S.beat && (S.isDirty || (await $.clock.now()) - S.beat.updatedAt > IDLE_BEAT_MS)) await writeBeat($)
-  await rebuild($)
+  const seen = await rebuild($)
+  await workerTick($)
+  if (seen) await hubTick($, seen.accounts, seen.beats)
+}
+
+/** A hub tool call: answered from a fresh look at the files. */
+async function answerHubTool($: EngineInterface, tool: HubTool, input: Record<string, unknown>) {
+  const seen = await rebuild($)
+  const text = await hubToolCall($, tool, input, seen?.accounts ?? [], seen?.beats ?? [])
+  return { result: text }
 }
 
 function noteError(err: unknown) {
@@ -252,13 +188,15 @@ export const register: Register = (on, options) => {
       argumentHint: '[open|close|refresh|report]',
     })
     S.paths = await pathsOf($, S.cfg)
-    const [id, cwd, model, repo, configDir, t] = await Promise.all([
+    await registerHubTools($)
+    const [id, cwd, model, repo, configDir, t, worker] = await Promise.all([
       $.session.id(),
       $.session.cwd(),
       $.session.model().catch(() => null),
       $.session.repo().catch(() => null),
       $.env.get('CLAUDE_CONFIG_DIR'),
       $.clock.now(),
+      workerName($),
     ])
     S.beat = {
       schema: 1,
@@ -275,11 +213,20 @@ export const register: Register = (on, options) => {
       costUsd: null,
       limits: null,
       limitsAt: null,
+      worker,
+      rollover: 'none',
+      rolloverAt: null,
+      waitingUntil: null,
+      lastReply: null,
+      finished: false,
       turns: 0,
       startedAt: t,
       stateSince: t,
       updatedAt: t,
     }
+    // A reload runs this again: keep what the heartbeat of this same session already said.
+    const previous = await $.fs.read(`${S.paths.live}/${id}.json`).then(t => parseBeat(String(t)), () => null)
+    S.beat = carryOver(previous, S.beat)
     await setBeat($, await readUsage($), true)
     if (!S.hasTimers) {
       // One set of timers per load, however often session.start fires.
@@ -316,9 +263,23 @@ export const register: Register = (on, options) => {
     const done = await next(e)
     if (!('agentId' in e && e.agentId) && S.beat) {
       await setBeat($, { state: 'idle', tool: null, detail: null, turns: S.beat.turns + 1, ...(await readUsage($)) }, true)
+      await workerTurnDone($, typeof done?.text === 'string' ? done.text : '')
     }
     return done
   })
+
+  on('tool.call', { tool: 'mcp__switch-fleet__fleet_status' }, async ($, e) =>
+    answerHubTool($, 'fleet_status', e as unknown as Record<string, unknown>),
+  )
+  on('tool.call', { tool: 'mcp__switch-fleet__fleet_open_worker' }, async ($, e) =>
+    answerHubTool($, 'fleet_open_worker', e as unknown as Record<string, unknown>),
+  )
+  on('tool.call', { tool: 'mcp__switch-fleet__fleet_send' }, async ($, e) =>
+    answerHubTool($, 'fleet_send', e as unknown as Record<string, unknown>),
+  )
+  on('tool.call', { tool: 'mcp__switch-fleet__fleet_stop_worker' }, async ($, e) =>
+    answerHubTool($, 'fleet_stop_worker', e as unknown as Record<string, unknown>),
+  )
 
   on('session.end', async ($, e, next) => {
     await setBeat($, { state: 'ended', tool: null, detail: null }, true)
@@ -439,7 +400,15 @@ export const register: Register = (on, options) => {
       const isWorking = s.state === 'working'
       const dot = s.liveness === 'quiet' ? '◌' : isWorking ? '●' : s.state === 'ended' ? '✕' : '○'
       const color = s.liveness === 'quiet' || s.state === 'ended' ? C.faint : isWorking ? C.main : C.dim
-      const what = isWorking ? (s.tool ? `${s.tool}${s.detail ? `: ${s.detail}` : ''}` : 'pensando') : s.state === 'ended' ? 'cerrada' : 'en espera'
+      const badge = s.waitingUntil
+        ? `esperando reinicio (${fmtWhen(s.waitingUntil, t, offset)})`
+        : s.rollover === 'requested'
+          ? 'escribiendo relevo'
+          : s.rollover === 'ready'
+            ? 'relevo listo, esperando sucesor'
+            : null
+      const idleWhat = s.state === 'ended' ? 'cerrada' : (badge ?? (s.lastReply ? `en espera · «${s.lastReply}»` : 'en espera'))
+      const what = isWorking ? (s.tool ? `${s.tool}${s.detail ? `: ${s.detail}` : ''}` : 'pensando') : idleWhat
       const meta = [s.model ? s.model.replace(/^claude-/, '').replace(/-\d{8}$/, '') : null, s.ctxPct !== null ? `ctx ${Math.round(s.ctxPct)}%` : null, s.costUsd ? `$${s.costUsd.toFixed(2)}` : null, fmtSpan(t - s.stateSince)]
         .filter(Boolean)
         .join(' · ')
@@ -447,7 +416,8 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" width={inner}>
           <Box justifyContent="space-between" width={inner} overflow="hidden">
             <Text color={color} bold={isWorking} wrap="truncate">
-              {dot} {s.place}
+              {dot} {s.worker ? `[${s.worker}] ` : ''}
+              {s.place}
               {s.isSelf ? ' (esta)' : ''}
             </Text>
             <Box flexShrink={0}>
