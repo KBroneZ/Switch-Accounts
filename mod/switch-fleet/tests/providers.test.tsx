@@ -159,6 +159,24 @@ describe('providers for the hub', () => {
   })
 })
 
+describe('providers for the hub', () => {
+  test('one line per provider with every window, its reset and the reading age', () => {
+    const gpt = parseCodexRollout(event(goPlan), NOW)!
+    const gem = parseAgyUsage(agyOutput(1, 0.25), NOW, NOW - 120_000)!
+    expect(providerLines([gpt, gem], NOW)).toEqual([
+      'ChatGPT (vía Codex, plan go): disponible · 30d 99% (reinicio 2030-01-25T16:18:25.000Z) · leído hace 1 h',
+      'Gemini (vía Antigravity): disponible · Gemini 7d 0% (reinicio 2030-01-15T20:26:10.000Z) · Claude/GPT 7d 75% (reinicio 2030-01-15T20:26:10.000Z) · leído hace 2 min',
+    ])
+  })
+
+  test('at the limit, unknown and stale readings say so', () => {
+    const capped = parseCodexRollout(event({ ...goPlan, primary: { ...goPlan.primary, used_percent: 100 } }, new Date(NOW - STALE_MS - 60_000).toISOString()), NOW)!
+    expect(providerLines([capped], NOW)[0]).toMatch(/^ChatGPT \(vía Codex, plan go\): en su límite · 30d 100% .* · leído hace 6 h \(antiguo\)$/)
+    const unknown = parseAgyUsage(agyOutput(0.5, 0.5, '2030-01-10T11:00:00Z'), NOW, NOW)!
+    expect(providerLines([unknown], NOW)[0]).toBe('Gemini (vía Antigravity): sin dato · Gemini 7d ? · Claude/GPT 7d ? · leído hace 0 min')
+  })
+})
+
 describe('provider status and alerts', () => {
   const p = parseCodexRollout(event(goPlan), NOW)!
 
