@@ -295,6 +295,22 @@ them, spending little) and the other accounts do the work. The hub is the accoun
 Everything stays in local files under `~/.claude-switch/` (`workers/`, `inbox/`, `live/`). Run one
 hub session at a time: two hub sessions could each open the same successor.
 
+### Fleet Deck: the pane in the desktop app
+
+In the Claude Code desktop app (and the editor extension) `/fleet` draws the **Deck** instead of
+the text pane; the terminal keeps the text pane.
+
+- **Accounts:** a card per account with SVG bars for the 5-hour and weekly windows: the use so
+  far, a fainter stretch to where the recent pace takes it by the reset, and a tick at the cap.
+  Login, plan, reset times, the forecast line and the open-session button stay as they were.
+- **HUB:** a lane per worker: account, hand-over generation, phase (working with its tool,
+  waiting for its account's reset, writing its hand-over, successor pending, finished, stopped),
+  a context bar with a tick at `rolloverPercent`, its last answer and its folder.
+- **Controls, in sessions of the hub account only:** a field to message each worker, a stop
+  button that asks for a second press, and `+ nuevo worker` (account, name, folder, brief, model,
+  effort). They go through the same checks as the `fleet_*` tools: never the hub account, never
+  `auto`, only an account that is ready. Sessions of other accounts see the lanes without controls.
+
 ### Usage report
 
 ```powershell

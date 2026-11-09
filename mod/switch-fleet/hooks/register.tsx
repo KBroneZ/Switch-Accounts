@@ -8,11 +8,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AccountView, Beat, FleetView, Meter, PipelineView, SessionView } from '../types'
+import type { AccountView, Beat, DeckView, FleetView, HubView, Meter, PipelineView, SessionView } from '../types'
 import { alertsFor, buildFleet, parsePipeline, fmtSpan, fmtWhen, forecastText, gauge, healthChanges, maskSecrets, normPath, parseBeat, parseSnapshot, shorten, statusText, toolDetail } from './core'
 import { parseHistory } from './forecast'
 import type { History } from './forecast'
-import { hubTick, hubToolCall, registerHubTools } from './hub'
+import { renderDeck, drafts, EMPTY_DECK } from './deck'
+import type { DeckActions, DeckElements, WorkerDraft } from './deck'
+import { buildWorkers } from './deck-view'
+import { hubTick, hubToolCall, isHub, registerHubTools } from './hub'
+import { parseWorker, WORKER_NAME } from './hub-core'
+import type { WorkerRecord } from './hub-core'
 import type { HubTool } from './hub'
 import { parseConfig, pathsOf, readUsage, S, setBeat, writeBeat } from './shared'
 import { carryOver, workerName, workerTick, workerTurnDone } from './worker'
@@ -24,7 +29,9 @@ const IDLE_BEAT_MS = 60_000
 const REFRESH_TIMEOUT_MS = 180_000
 const LOCK_MS = 4 * 60_000
 
-const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-3' })
+const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-4' })
+/** The Deck's notes and two-press controls (the desktop pane). */
+const deck = atom({ plugin: 'switch-fleet', key: 'deck' } as const, EMPTY_DECK, { shape: 'deck-1' })
 /** Alerts already shown, kept across sessions so each one is toasted once. */
 const ALERTED_KEY = 'alerted'
 const MAX_ALERTED = 100
@@ -37,6 +44,15 @@ async function readBeats($: EngineInterface): Promise<Beat[]> {
     files.map(f => $.fs.read(`${S.paths!.live}/${f.name}`).then(t => parseBeat(String(t)), () => null)),
   )
   return beats.filter((b): b is Beat => b !== null)
+}
+
+/** Every hub worker record on disk (workers/<name>.json); briefs and hand-overs are skipped. */
+async function readWorkers($: EngineInterface): Promise<WorkerRecord[]> {
+  if (!S.paths) return []
+  const entries = await $.fs.list(S.paths.workers).catch(() => [])
+  const names = entries.filter(f => f.kind === 'file' && f.name.endsWith('.json')).map(f => f.name.slice(0, -'.json'.length)).filter(n => WORKER_NAME.test(n))
+  const records = await Promise.all(names.map(n => $.fs.read(`${S.paths!.workers}/${n}.json`).then(t => parseWorker(String(t)), () => null)))
+  return records.filter((r): r is WorkerRecord => r !== null)
 }
 
 /** usage-history.jsonl, read again only when it changed (it grows with every -List). */
@@ -66,11 +82,12 @@ async function raiseAlerts($: EngineInterface, accounts: AccountView[], now: num
 
 async function rebuild($: EngineInterface) {
   if (!S.paths) return
-  const [text, beats, history, pipelineText, t] = await Promise.all([
+  const [text, beats, history, pipelineText, records, t] = await Promise.all([
     $.fs.read(S.paths.status).then(String, () => null),
     readBeats($),
     readHistory($),
     $.fs.read(S.paths.pipeline).then(String, () => null),
+    readWorkers($),
     $.clock.now(),
   ])
   const snapshot = text ? parseSnapshot(text) : null
@@ -81,7 +98,14 @@ async function rebuild($: EngineInterface) {
   const built = buildFleet(snapshot, beats, t, S.beat?.sessionId ?? null, history)
   const before = await read($, fleet)
   const pipeline = pipelineText ? parsePipeline(pipelineText, t) : null
-  const view: FleetView = { ...built, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
+  const hub: HubView = {
+    hubAccount: S.cfg.hubAccount,
+    isHub: isHub(),
+    rolloverPercent: S.cfg.rolloverPercent,
+    cwd: S.beat?.cwd ?? null,
+    workers: buildWorkers(records, beats, S.cfg.hubAccount, t),
+  }
+  const view: FleetView = { ...built, hub, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
   // Redraw only when something a reader sees changed (builtAt alone does not count).
   const same = before && JSON.stringify({ ...before, builtAt: 0 }) === JSON.stringify({ ...view, builtAt: 0 })
   if (!same) await update($, fleet, () => view)
@@ -135,6 +159,58 @@ async function answerHubTool($: EngineInterface, tool: HubTool, input: Record<st
   const seen = await rebuild($)
   const text = await hubToolCall($, tool, input, seen?.accounts ?? [], seen?.beats ?? [])
   return { result: text }
+}
+
+/** Sets the Deck's note (and clears what waited for a second press). */
+async function deckNote($: EngineInterface, note: string | null, isError = false, patch: Partial<DeckView> = {}) {
+  await update($, deck, d => ({ ...(d ?? EMPTY_DECK), note, isNoteError: isError, confirmStop: null, ...patch }))
+}
+
+/** A Deck control that acts as the hub: the same checks as the model's fleet_* tools. */
+async function deckHub($: EngineInterface, tool: HubTool, input: Record<string, unknown>): Promise<string> {
+  const seen = await rebuild($)
+  const text = await hubToolCall($, tool, input, seen?.accounts ?? [], seen?.beats ?? [])
+  await rebuild($)
+  return text
+}
+
+function deckActions($: EngineInterface): DeckActions {
+  const run = (work: () => Promise<void>) => void work().catch(err => {
+    noteError(err)
+    void deckNote($, `Error: ${shorten(String(err), 200)}`, true, { busy: null }).catch(() => undefined)
+  })
+  return {
+    refresh: () => run(() => maybeRefresh($, true)),
+    openSession: account => run(() => openSessionOn($, account)),
+    send: (worker, text) =>
+      run(async () => {
+        if (!text.trim()) return
+        const answer = await deckHub($, 'fleet_send', { worker, text })
+        drafts.messages[worker] = ''
+        await deckNote($, answer, !/^Mensaje \d+ en cola/.test(answer))
+      }),
+    askStop: worker =>
+      run(async () => {
+        await update($, deck, d => ({ ...(d ?? EMPTY_DECK), confirmStop: worker }))
+      }),
+    stop: worker => run(async () => deckNote($, await deckHub($, 'fleet_stop_worker', { worker }))),
+    toggleForm: () =>
+      run(async () => {
+        await update($, deck, d => ({ ...(d ?? EMPTY_DECK), isFormOpen: !(d ?? EMPTY_DECK).isFormOpen }))
+      }),
+    openWorker: (draft: WorkerDraft) =>
+      run(async () => {
+        await deckNote($, `Abriendo el worker ${draft.name || '?'} en la cuenta ${draft.account || '?'}…`, false, { busy: 'open' })
+        const input: Record<string, unknown> = { account: draft.account, worker: draft.name, directory: draft.directory, brief: draft.brief }
+        if (draft.model) input.model = draft.model
+        if (draft.effort) input.effort = draft.effort
+        const answer = await deckHub($, 'fleet_open_worker', input)
+        const isOpened = answer.startsWith(`Worker ${draft.name} abierto`)
+        if (isOpened) drafts.worker = { ...drafts.worker, name: '', brief: '' }
+        await deckNote($, answer, !isOpened, { busy: null, ...(isOpened ? { isFormOpen: false } : {}) })
+      }),
+    dismissNote: () => run(() => deckNote($, null)),
+  }
 }
 
 function noteError(err: unknown) {
@@ -309,6 +385,10 @@ export const register: Register = (on, options) => {
   // ------------------------------------------------------------ pane
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    if (e.surface === 'desktop' || e.surface === 'vscode') {
+      const [view, d, now] = await Promise.all([read($, fleet), read($, deck), $.clock.now()])
+      return renderDeck($.ui.resolve(e) as unknown as DeckElements, view, d ?? EMPTY_DECK, now, deckActions($))
+    }
     const { Box, Text, Button } = $.ui.resolve(e)
     const [view, t] = await Promise.all([read($, fleet), $.clock.now()])
     const W = Math.max(28, e.props.bodyColumns)
