@@ -97,7 +97,12 @@ export async function workerTick($: EngineInterface) {
   const now = await $.clock.now()
   if (beat.waitingUntil) {
     if (now < resumeAt(beat.waitingUntil)) return
-    if (await submit($, RESUME_PROMPT)) await setBeat($, { waitingUntil: null }, true)
+    // A hand-over asked for before the stop is still owed: ask for it again, not for more work.
+    const owed = beat.rollover === 'requested' && beat.ctxPct !== null ? rolloverPrompt(beat.ctxPct, S.paths.workers, beat.worker) : null
+    if (await submit($, owed ?? RESUME_PROMPT)) {
+      W.pending = null
+      await setBeat($, { waitingUntil: null }, true)
+    }
     return
   }
   if (W.pending) {

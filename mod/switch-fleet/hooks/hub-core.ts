@@ -36,6 +36,11 @@ export type WorkerRecord = {
   claimedBy: string | null
   /** Inbox messages up to this sequence predate the worker's latest fresh open and are never delivered. */
   mailFrom: number
+  /**
+   * The generation that asked for a successor the hub has not opened yet. Kept in the record so
+   * the request outlives the asking session's heartbeat (its tab may close while the account waits).
+   */
+  successorDue: number | null
   createdAt: number
   updatedAt: number
 }
@@ -79,6 +84,7 @@ export function parseWorker(text: string): WorkerRecord | null {
     openedAt: numOr(d.openedAt, 0),
     claimedBy: str(d.claimedBy),
     mailFrom: Math.max(0, Math.floor(numOr(d.mailFrom, 0))),
+    successorDue: typeof d.successorDue === 'number' && Number.isFinite(d.successorDue) ? Math.floor(d.successorDue) : null,
     createdAt: numOr(d.createdAt, 0),
     updatedAt: numOr(d.updatedAt, 0),
   }
@@ -150,6 +156,19 @@ export function needsSuccessor(beat: Beat, record: WorkerRecord | null, hubAccou
   const wantsIt = beat.rollover === 'ready' || (beat.rollover === 'requested' && beat.state === 'ended')
   return wantsIt && beat.state !== 'working'
 }
+
+/** Whether the hub owes this worker a successor: asked by the current generation, not stopped. */
+export const owesSuccessor = (record: WorkerRecord, hubAccount: string) =>
+  record.state === 'active' && record.successorDue === record.generation && isWorkerAccount(record.account, hubAccount)
+
+/**
+ * Another live session of the current generation that started before the one asking. The asking
+ * session then is not the generation's worker (a predecessor whose heartbeat was lost on a reload
+ * and came back with a fresh start time), and opening a successor for it would duplicate the worker.
+ * `live` holds only the heartbeats still shown.
+ */
+export const earlierLiveSession = (live: Beat[], asking: Beat, record: WorkerRecord) =>
+  live.find(b => b.worker === record.name && b.sessionId !== asking.sessionId && b.state !== 'ended' && b.startedAt >= record.openedAt && b.startedAt < asking.startedAt)
 
 export const briefPath = (workersDir: string, name: string) => `${workersDir}/${name}.brief.md`
 export const handoverPath = (workersDir: string, name: string) => `${workersDir}/${name}.handover.md`
