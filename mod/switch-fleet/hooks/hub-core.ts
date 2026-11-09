@@ -21,6 +21,10 @@ export const MAX_MESSAGE = 4_000
 export const DONE_MARK = 'ENCARGO TERMINADO'
 export const HANDOVER_MARK = 'RELEVO LISTO'
 
+export const PRIORITIES = ['alta', 'media', 'baja'] as const
+export type Priority = (typeof PRIORITIES)[number]
+export const isPriority = (v: unknown): v is Priority => typeof v === 'string' && (PRIORITIES as readonly string[]).includes(v)
+
 export type WorkerRecord = {
   schema: 1
   name: string
@@ -29,6 +33,8 @@ export type WorkerRecord = {
   model: string | null
   effort: string | null
   generation: number
+  /** How the hub ranks this task among the others; set at open, changed from the Deck. */
+  priority: Priority
   state: 'active' | 'stopped'
   /** When the current generation was opened: older sessions of this worker never ask again. */
   openedAt: number
@@ -80,6 +86,7 @@ export function parseWorker(text: string): WorkerRecord | null {
     model,
     effort,
     generation: Math.max(1, Math.floor(numOr(d.generation, 1))),
+    priority: isPriority(d.priority) ? d.priority : 'media',
     state: d.state === 'stopped' ? 'stopped' : 'active',
     openedAt: numOr(d.openedAt, 0),
     claimedBy: str(d.claimedBy),

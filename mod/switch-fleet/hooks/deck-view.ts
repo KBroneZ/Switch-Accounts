@@ -37,14 +37,25 @@ const PHASE_ORDER: Record<WorkerPhase, number> = {
   stopped: 8,
 }
 
-/** Every worker record with its current session, busiest first, then by name. */
-export function buildWorkers(records: WorkerRecord[], beats: Beat[], hubAccount: string, now: number): WorkerView[] {
+const PRIORITY_ORDER: Record<WorkerView['priority'], number> = { alta: 0, media: 1, baja: 2 }
+const isOpenPhase = (p: WorkerPhase) => p !== 'finished' && p !== 'stopped' && p !== 'gone'
+
+/** A brief's first line that says something, as the task's title. */
+export function briefTitle(brief: string | null): string | null {
+  const line = (brief ?? '').split(/\r?\n/).map(l => l.replace(/^[#>*\-\s]+/, '').trim()).find(Boolean)
+  return line ? (line.length > 90 ? `${line.slice(0, 89)}…` : line) : null
+}
+
+/** Every worker record with its current session: open tasks first, then by priority, phase and name. */
+export function buildWorkers(records: WorkerRecord[], beats: Beat[], hubAccount: string, now: number, briefs: Map<string, string> = new Map()): WorkerView[] {
   return records
     .map(record => {
       const beat = currentBeat(record, beats, now)
       const phase = workerPhase(record, beat, hubAccount, now)
       const view: WorkerView = {
         name: record.name,
+        title: briefTitle(briefs.get(record.name) ?? null),
+        priority: record.priority,
         account: record.account,
         directory: record.directory,
         model: record.model,
@@ -61,7 +72,13 @@ export function buildWorkers(records: WorkerRecord[], beats: Beat[], hubAccount:
       }
       return view
     })
-    .sort((a, b) => PHASE_ORDER[a.phase] - PHASE_ORDER[b.phase] || a.name.localeCompare(b.name))
+    .sort(
+      (a, b) =>
+        Number(isOpenPhase(b.phase)) - Number(isOpenPhase(a.phase)) ||
+        PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] ||
+        PHASE_ORDER[a.phase] - PHASE_ORDER[b.phase] ||
+        a.name.localeCompare(b.name),
+    )
 }
 
 // ------------------------------------------------------------ SVG

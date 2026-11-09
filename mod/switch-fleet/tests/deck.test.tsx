@@ -3,7 +3,8 @@ import type { TestBody } from 'claude-code/testing'
 
 import type { Beat, DeckView, FleetView, HubView } from '../types'
 import { buildFleet, parseSnapshot } from '../hooks/core'
-import { buildWorkers, contextSvg, meterColor, meterSvg, PALETTE, phaseLabel, STARTING_MS, workerPhase } from '../hooks/deck-view'
+import { briefTitle, buildWorkers, contextSvg, meterColor, meterSvg, PALETTE, phaseLabel, STARTING_MS, workerPhase } from '../hooks/deck-view'
+import { parseWorker } from '../hooks/hub-core'
 import type { WorkerRecord } from '../hooks/hub-core'
 
 const NOW = Date.parse('2030-01-01T12:00:00Z')
@@ -71,6 +72,7 @@ const record = (over: Partial<WorkerRecord>): WorkerRecord => ({
   model: null,
   effort: null,
   generation: 1,
+  priority: 'media',
   state: 'active',
   openedAt: NOW - 60_000,
   claimedBy: null,
@@ -118,6 +120,32 @@ describe('worker phases', () => {
   })
 })
 
+describe('task board', () => {
+  test('a brief’s first line is the task title', () => {
+    expect(briefTitle('# Arreglar el login\n\nmás')).toBe('Arreglar el login')
+    expect(briefTitle('\n\n- paso uno')).toBe('paso uno')
+    expect(briefTitle('')).toBeNull()
+    expect(briefTitle('x'.repeat(200))?.length).toBe(90)
+  })
+
+  test('open tasks come first, then by priority', () => {
+    const ws = buildWorkers(
+      [record({ name: 'low', priority: 'baja' }), record({ name: 'done', priority: 'alta', state: 'stopped' }), record({ name: 'high', priority: 'alta' })],
+      [beat({ worker: 'low', sessionId: 'l' }), beat({ worker: 'high', sessionId: 'h', state: 'idle' })],
+      'A',
+      NOW,
+    )
+    expect(ws.map(w => w.name)).toEqual(['high', 'low', 'done'])
+  })
+
+  test('a record without a priority, or with an odd one, reads as media', () => {
+    const { priority: _drop, ...old } = record({})
+    expect(parseWorker(JSON.stringify(old))?.priority).toBe('media')
+    expect(parseWorker(JSON.stringify({ ...old, priority: 'urgente' }))?.priority).toBe('media')
+    expect(parseWorker(JSON.stringify(record({ priority: 'baja' })))?.priority).toBe('baja')
+  })
+})
+
 describe('svg', () => {
   test('a meter draws the use, the projection and the cap tick', () => {
     const svg = meterSvg({ pct: 50, cap: 80, resetsAt: null, isLive: false }, 70, 200)
@@ -161,7 +189,7 @@ const hubView = (isHub: boolean): HubView => ({
   isHub,
   rolloverPercent: 40,
   cwd: 'C:/src/app',
-  workers: buildWorkers([record({})], [beat({})], 'A', NOW),
+  workers: buildWorkers([record({ priority: 'alta' })], [beat({})], 'A', NOW, new Map([['w1', '# Arreglar el login\n\nDetalles…']])),
 })
 
 function seed(on: Parameters<TestBody>[1], view: FleetView, deck: DeckView) {
@@ -184,6 +212,10 @@ test('the desktop Deck draws gauges, the hub lanes and their controls', async ($
     expect(await ui.find({ key: 'nw-account' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Mensaje 1 en cola/ })).toBeDefined()
     expect(await ui.find({ key: 'open-B' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Arreglar el login$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /▲ alta/ })).toBeDefined()
+    expect(await ui.find({ key: 'prio-w1' })).toBeDefined()
+    expect(await ui.find({ key: 'nw-priority' })).toBeDefined()
     await ui.unmount()
   }
 })
