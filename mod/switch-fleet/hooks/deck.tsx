@@ -259,7 +259,7 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
             </Box>
           ),
         )}
-        <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `leído hace ${fmtSpan(t - p.readAt)} (último uso de ${p.source})` : 'sin fecha de lectura'}</Text>
+        <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `leído hace ${fmtSpan(t - p.readAt)} (${p.readNote})` : 'sin fecha de lectura'}</Text>
       </Box>
     )
   }

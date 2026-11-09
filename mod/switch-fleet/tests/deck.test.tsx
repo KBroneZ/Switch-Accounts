@@ -203,7 +203,7 @@ const hubView = (isHub: boolean): HubView => ({
 function seed(on: Parameters<TestBody>[1], view: FleetView, deck: DeckView) {
   on('clock.now', () => ({ value: NOW }))
   on('state.get', (_$, e) =>
-    e.key === 'deck' ? { value: { value: { shape: 'deck-2', value: deck }, version: 1 } } : { value: { value: { shape: 'fleet-6', value: view }, version: 1 } },
+    e.key === 'deck' ? { value: { value: { shape: 'deck-2', value: deck }, version: 1 } } : { value: { value: { shape: 'fleet-7', value: view }, version: 1 } },
   )
 }
 

@@ -4,7 +4,8 @@
 // ~/.claude-switch/live/<sessionId>.json (state, tool, model, context, cost and the limits of
 // its own account), so any other session with this mod sees it. The pane: it reads those
 // heartbeats and status.json (written by `open-session.ps1 -List`), and runs -List again when
-// status.json is older than `refreshMinutes`. Only local files; no network, no model calls.
+// status.json is older than `refreshMinutes`. Local files and local CLIs; no model calls. The one
+// request it makes itself is Antigravity's `/usage` (gemini.ts), when that CLI is installed.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -18,6 +19,7 @@ import { buildWorkers } from './deck-view'
 import { hubTick, hubToolCall, isHub, registerHubTools, setWorkerPriority } from './hub'
 import { parseWorker, WORKER_NAME } from './hub-core'
 import { newestFirst, parseCodexRollout, providerAlerts, providerStatus } from './providers'
+import { maybeAskGemini, readGemini } from './gemini'
 import type { WorkerRecord } from './hub-core'
 import type { HubTool } from './hub'
 import { parseConfig, pathsOf, readUsage, S, setBeat, writeBeat } from './shared'
@@ -30,7 +32,7 @@ const IDLE_BEAT_MS = 60_000
 const REFRESH_TIMEOUT_MS = 180_000
 const LOCK_MS = 4 * 60_000
 
-const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-6' })
+const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-7' })
 /** The Deck's notes and two-press controls (the desktop pane). */
 const deck = atom({ plugin: 'switch-fleet', key: 'deck' } as const, EMPTY_DECK, { shape: 'deck-2' })
 /** Alerts already shown, kept across sessions so each one is toasted once. */
@@ -159,7 +161,8 @@ async function rebuild($: EngineInterface) {
     cwd: S.beat?.cwd ?? null,
     workers: buildWorkers(workers.records, beats, S.cfg.hubAccount, t, workers.briefs),
   }
-  const providers = await readCodex($, t).catch(() => [] as ProviderView[])
+  const none = () => [] as ProviderView[]
+  const providers = (await Promise.all([readCodex($, t).catch(none), readGemini($, t).catch(none)])).flat()
   const view: FleetView = { ...built, providers, hub, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
   // Redraw only when something a reader sees changed (builtAt alone does not count).
   const same = before && JSON.stringify({ ...before, builtAt: 0 }) === JSON.stringify({ ...view, builtAt: 0 })
@@ -208,6 +211,8 @@ async function maybeRefresh($: EngineInterface, force: boolean) {
 async function tick($: EngineInterface) {
   if (S.beat && (S.isDirty || (await $.clock.now()) - S.beat.updatedAt > IDLE_BEAT_MS)) await writeBeat($)
   const seen = await rebuild($)
+  // In the background: the answer lands in a file the next poll draws.
+  void maybeAskGemini($, await $.clock.now()).catch(noteError)
   await workerTick($)
   if (seen) await hubTick($, seen.accounts, seen.beats)
 }
@@ -658,8 +663,19 @@ export const register: Register = (on, options) => {
             </Text>
             <Box flexShrink={0}>{p.health === 'at-cap' ? <Text color={C.bad}>✗ límite</Text> : p.health === 'ready' ? <Text color={C.ok}>● disponible</Text> : <Text color={C.dim}>? sin dato</Text>}</Box>
           </Box>
-          {p.windows.map(w => meterRow(w.label, { pct: w.pct, cap: null, resetsAt: w.resetsAt, isLive: false }, inner))}
-          <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `leído hace ${fmtSpan(t - p.readAt)} (último uso de ${p.source})` : 'sin fecha de lectura'}</Text>
+          {p.windows.map(w => {
+            const meter: Meter = { pct: w.pct, cap: null, resetsAt: w.resetsAt, isLive: false }
+            // A group's name (Claude/GPT 7d) gets its own line; a bare window (30d) sits beside its gauge.
+            return w.label.length <= 4 ? (
+              <Box key={`pw-${p.id}-${w.label}`}>{meterRow(w.label, meter, inner)}</Box>
+            ) : (
+              <Box key={`pw-${p.id}-${w.label}`} flexDirection="column">
+                <Text color={C.dim}>{w.label}</Text>
+                {meterRow('', meter, inner)}
+              </Box>
+            )
+          })}
+          <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `leído hace ${fmtSpan(t - p.readAt)} (${p.readNote})` : 'sin fecha de lectura'}</Text>
         </Box>
       )
     }

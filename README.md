@@ -305,6 +305,21 @@ no credentials and makes no request; the numbers are as fresh as your last Codex
 marked stale after 6 hours. The status line adds `GPT 99%`, and a window at 90 % or at its limit
 is toasted once.
 
+### Gemini in Fleet
+
+With Antigravity's CLI installed (`agy`, at `%LOCALAPPDATA%gyingy.exe`, or set `agyPath`)
+and signed in, Fleet draws a **Gemini** card: Antigravity's weekly limit for each group of models
+(`Gemini 7d` for Gemini Flash and Pro, `Claude/GPT 7d` for Claude Opus, Sonnet and GPT-OSS), with
+the percent used and the reset. It works on any Google AI plan Antigravity accepts (Plus included);
+the plan's name is not reported, so the card shows none.
+
+Unlike ChatGPT, nothing on disk holds these numbers, so Fleet asks: `agy -p /usage --output-format
+json`, a slash command that makes no model turn and spends nothing. One session at a time runs it
+(a lock in `~/.claude-switch`), at most every 10 minutes, and keeps the answer in
+`~/.claude-switch/gemini-usage.json`; agy's log goes to `agy-usage.log` there, overwritten each run.
+A failed run keeps the last answer and writes why to `gemini-error.txt`, which every session shows
+on the card; no session asks again for 10 minutes.
+
 ### Fleet Deck: the pane in the desktop app
 
 In the Claude Code desktop app (and the editor extension) `/fleet` draws the **Deck** instead of

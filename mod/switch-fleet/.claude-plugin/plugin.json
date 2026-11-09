@@ -1,6 +1,6 @@
 {
   "name": "switch-fleet",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Fleet: a live pane of every Claude Code account you own and every session on each, plus a hub mode: a hub account opens workers on your other accounts, which hand over at a context threshold and wait for their own account's reset.",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -39,6 +39,12 @@
       "description": "The account (name in accounts.json) whose sessions act as the hub: they use the fleet_* tools and open successors.",
       "type": "string",
       "default": "A"
+    },
+    "agyPath": {
+      "title": "Antigravity CLI path",
+      "description": "agy.exe, asked for Gemini's usage (/usage, no model turn) every 10 minutes. Empty: %LOCALAPPDATA%/agy/bin/agy.exe. Not installed: no Gemini card.",
+      "type": "string",
+      "default": ""
     }
   },
   "license": "MIT",

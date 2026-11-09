@@ -182,16 +182,18 @@ export type ProviderWindow = {
   resetsAt: string | null
 }
 
-/** Another AI subscription (ChatGPT through Codex), read from its own local files. */
+/** Another AI subscription: ChatGPT (from Codex's session files) or Gemini (asked of Antigravity's CLI). */
 export type ProviderView = {
   id: string
   name: string
-  /** The tool its numbers come from (Codex). */
+  /** The tool its numbers come from (Codex, Antigravity). */
   source: string
   plan: string | null
   windows: ProviderWindow[]
-  /** When the provider last reported them: its last turn. */
+  /** When the provider last reported them: Codex's last turn, Antigravity's last answer. */
   readAt: number | null
+  /** What readAt is, after "leído hace …": `último uso de Codex`, `consultado a Antigravity`, or why it failed. */
+  readNote: string
   isStale: boolean
   health: 'ready' | 'at-cap' | 'unknown'
 }

@@ -15,6 +15,8 @@ export type Config = {
   rolloverPercent: number
   /** The account whose sessions act as the hub: they open successors and serve the hub tools. */
   hubAccount: string
+  /** Antigravity's CLI, asked for Gemini's usage. Empty: %LOCALAPPDATA%/agy/bin/agy.exe. */
+  agyPath: string
 }
 
 export function parseConfig(options: Record<string, unknown>): Config {
@@ -28,6 +30,7 @@ export function parseConfig(options: Record<string, unknown>): Config {
     statusLine: options.statusLine !== false,
     rolloverPercent: Math.min(90, Math.max(10, rollover)),
     hubAccount: hub,
+    agyPath: typeof options.agyPath === 'string' ? options.agyPath.trim() : '',
   }
 }
 
@@ -43,6 +46,12 @@ export type Paths = {
   defaultConfigDir: string
   /** Codex's home (CODEX_HOME, else ~/.codex): its sessions carry ChatGPT's rate limits. */
   codexHome: string
+  /** Antigravity's last `/usage` answer (its JSON), the lock one session takes to ask, the last failure, and the CLI's log. */
+  gemini: string
+  geminiLock: string
+  geminiError: string
+  agyLog: string
+  agy: string
   script: string
 }
 
@@ -60,6 +69,11 @@ export async function pathsOf($: EngineInterface, cfg: Config): Promise<Paths> {
     inbox: `${dir}/inbox`,
     defaultConfigDir: `${home}/.claude`,
     codexHome: (await $.env.get('CODEX_HOME')) || `${home}/.codex`,
+    gemini: `${dir}/gemini-usage.json`,
+    geminiLock: `${dir}/gemini.lock`,
+    geminiError: `${dir}/gemini-error.txt`,
+    agyLog: `${dir}/agy-usage.log`,
+    agy: cfg.agyPath || `${(await $.env.get('LOCALAPPDATA')) || `${home}/AppData/Local`}/agy/bin/agy.exe`,
     script: cfg.scriptPath || `${home}/.claude/skills/switch-account/scripts/open-session.ps1`,
   }
 }
