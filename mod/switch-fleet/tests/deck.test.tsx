@@ -149,7 +149,7 @@ const PANE = {
   props: { title: 'Fleet', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-const EMPTY: DeckView = { note: null, isNoteError: false, busy: null, confirmStop: null, isFormOpen: false }
+const EMPTY: DeckView = { note: null, isNoteError: false, busy: null, confirmStop: null, confirmAt: null, isFormOpen: false }
 
 function viewWith(hub: HubView): FleetView {
   const built = buildFleet(parseSnapshot(snapshotText), [beat({})], NOW, null)
@@ -167,7 +167,7 @@ const hubView = (isHub: boolean): HubView => ({
 function seed(on: Parameters<TestBody>[1], view: FleetView, deck: DeckView) {
   on('clock.now', () => ({ value: NOW }))
   on('state.get', (_$, e) =>
-    e.key === 'deck' ? { value: { value: { shape: 'deck-1', value: deck }, version: 1 } } : { value: { value: { shape: 'fleet-4', value: view }, version: 1 } },
+    e.key === 'deck' ? { value: { value: { shape: 'deck-2', value: deck }, version: 1 } } : { value: { value: { shape: 'fleet-4', value: view }, version: 1 } },
   )
 }
 
@@ -197,10 +197,17 @@ test('outside the hub the Deck shows the lanes without controls', async ($, on) 
   await ui.unmount()
 })
 
-test('the stop button asks for a second press', async ($, on) => {
-  seed(on, viewWith(hubView(true)), { ...EMPTY, confirmStop: 'w1' })
+test('the stop button asks for a second press, armed for a few seconds only', async ($, on) => {
+  seed(on, viewWith(hubView(true)), { ...EMPTY, confirmStop: 'w1', confirmAt: NOW - 2_000 })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ key: 'stop-w1' }))?.text).toContain('pulsa otra vez')
+  await ui.unmount()
+})
+
+test('a first stop press long ago is no longer armed', async ($, on) => {
+  seed(on, viewWith(hubView(true)), { ...EMPTY, confirmStop: 'w1', confirmAt: NOW - 60_000 })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ key: 'stop-w1' }))?.text).not.toContain('pulsa otra vez')
   await ui.unmount()
 })
 

@@ -31,7 +31,7 @@ const LOCK_MS = 4 * 60_000
 
 const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-4' })
 /** The Deck's notes and two-press controls (the desktop pane). */
-const deck = atom({ plugin: 'switch-fleet', key: 'deck' } as const, EMPTY_DECK, { shape: 'deck-1' })
+const deck = atom({ plugin: 'switch-fleet', key: 'deck' } as const, EMPTY_DECK, { shape: 'deck-2' })
 /** Alerts already shown, kept across sessions so each one is toasted once. */
 const ALERTED_KEY = 'alerted'
 const MAX_ALERTED = 100
@@ -174,6 +174,9 @@ async function deckHub($: EngineInterface, tool: HubTool, input: Record<string, 
   return text
 }
 
+/** An open from the Deck in flight: checked and set before any await, so a double press opens one. */
+let isDeckOpening = false
+
 function deckActions($: EngineInterface): DeckActions {
   const run = (work: () => Promise<void>) => void work().catch(err => {
     noteError(err)
@@ -187,29 +190,45 @@ function deckActions($: EngineInterface): DeckActions {
         if (!text.trim()) return
         const answer = await deckHub($, 'fleet_send', { worker, text })
         drafts.messages[worker] = ''
+        drafts.sent[worker] = (drafts.sent[worker] ?? 0) + 1
         await deckNote($, answer, !/^Mensaje \d+ en cola/.test(answer))
       }),
     askStop: worker =>
       run(async () => {
-        await update($, deck, d => ({ ...(d ?? EMPTY_DECK), confirmStop: worker }))
+        const at = await $.clock.now()
+        await update($, deck, d => ({ ...(d ?? EMPTY_DECK), confirmStop: worker, confirmAt: at }))
       }),
-    stop: worker => run(async () => deckNote($, await deckHub($, 'fleet_stop_worker', { worker }))),
+    stop: worker =>
+      run(async () => {
+        const answer = await deckHub($, 'fleet_stop_worker', { worker })
+        await deckNote($, answer, !/^Worker \S+: parará/.test(answer))
+      }),
     toggleForm: () =>
       run(async () => {
         await update($, deck, d => ({ ...(d ?? EMPTY_DECK), isFormOpen: !(d ?? EMPTY_DECK).isFormOpen }))
       }),
     openWorker: (draft: WorkerDraft) =>
       run(async () => {
-        await deckNote($, `Abriendo el worker ${draft.name || '?'} en la cuenta ${draft.account || '?'}…`, false, { busy: 'open' })
-        const input: Record<string, unknown> = { account: draft.account, worker: draft.name, directory: draft.directory, brief: draft.brief }
-        if (draft.model) input.model = draft.model
-        if (draft.effort) input.effort = draft.effort
-        const answer = await deckHub($, 'fleet_open_worker', input)
-        const isOpened = answer.startsWith(`Worker ${draft.name} abierto`)
-        if (isOpened) drafts.worker = { ...drafts.worker, name: '', brief: '' }
-        await deckNote($, answer, !isOpened, { busy: null, ...(isOpened ? { isFormOpen: false } : {}) })
+        if (isDeckOpening) return
+        isDeckOpening = true
+        try {
+          await openFromDeck(draft)
+        } finally {
+          isDeckOpening = false
+        }
       }),
     dismissNote: () => run(() => deckNote($, null)),
+  }
+
+  async function openFromDeck(draft: WorkerDraft) {
+    await deckNote($, `Abriendo el worker ${draft.name || '?'} en la cuenta ${draft.account || '?'}…`, false, { busy: 'open' })
+    const input: Record<string, unknown> = { account: draft.account, worker: draft.name, directory: draft.directory, brief: draft.brief }
+    if (draft.model) input.model = draft.model
+    if (draft.effort) input.effort = draft.effort
+    const answer = await deckHub($, 'fleet_open_worker', input)
+    const isOpened = answer.startsWith(`Worker ${draft.name} abierto`)
+    if (isOpened) drafts.worker = { ...drafts.worker, name: '', brief: '' }
+    await deckNote($, answer, !isOpened, { busy: null, ...(isOpened ? { isFormOpen: false } : {}) })
   }
 }
 
@@ -310,6 +329,8 @@ export const register: Register = (on, options) => {
       $.clock.every(POLL_MS, () => void tick($).catch(err => noteError(err)))
       $.clock.every(60_000, () => void maybeRefresh($, false).catch(err => noteError(err)))
     }
+    // An open that was in flight when the module last stopped is not running any more.
+    await update($, deck, d => ({ ...(d ?? EMPTY_DECK), busy: null, confirmStop: null, confirmAt: null })).catch(err => noteError(err))
     await rebuild($).catch(err => noteError(err))
     void maybeRefresh($, false).catch(err => noteError(err))
     if (S.cfg.openOnStart && e.isInteractive) {

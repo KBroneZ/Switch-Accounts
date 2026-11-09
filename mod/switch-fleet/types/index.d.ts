@@ -158,8 +158,9 @@ export type DeckView = {
   isNoteError: boolean
   /** A control still running (opening a worker can take minutes). */
   busy: string | null
-  /** The worker whose stop button asks for a second press. */
+  /** The worker whose stop button asks for a second press, and since when (it lapses). */
   confirmStop: string | null
+  confirmAt: number | null
   isFormOpen: boolean
 }
 

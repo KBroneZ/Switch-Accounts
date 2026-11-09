@@ -21,12 +21,16 @@ export type DeckActions = {
 export type WorkerDraft = { account: string; name: string; directory: string; brief: string; model: string; effort: string }
 
 /** Text typed into the Deck's fields. Kept here, not in state: typing need not redraw the pane. */
-export const drafts: { messages: Record<string, string>; worker: WorkerDraft } = {
+export const drafts: { messages: Record<string, string>; sent: Record<string, number>; worker: WorkerDraft } = {
   messages: {},
+  sent: {},
   worker: { account: '', name: '', directory: '', brief: '', model: '', effort: '' },
 }
 
-export const EMPTY_DECK: DeckView = { note: null, isNoteError: false, busy: null, confirmStop: null, isFormOpen: false }
+export const EMPTY_DECK: DeckView = { note: null, isNoteError: false, busy: null, confirmStop: null, confirmAt: null, isFormOpen: false }
+
+/** A first press of a stop button stays armed this long. */
+export const CONFIRM_MS = 10_000
 
 const C = { main: 'claude', ok: 'success', warn: 'warning', bad: 'error', dim: 'inactive', faint: 'subtle', text: 'text', info: 'suggestion' } as const
 
@@ -198,7 +202,8 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
 
   const lane = (w: WorkerView, threshold: number, canAct: boolean) => {
     const isLive = w.phase !== 'stopped' && w.phase !== 'gone'
-    const confirming = deck.confirmStop === w.name
+    const confirming = deck.confirmStop === w.name && deck.confirmAt !== null && t - deck.confirmAt < CONFIRM_MS
+    const sent = drafts.sent[w.name] ?? 0
     return (
       <Box key={`lane-${w.name}`} flexDirection="column" borderStyle="single" borderColor={PHASE_COLOR[w.phase]} paddingX={1}>
         <Box justifyContent="space-between" columnGap={1}>
@@ -223,7 +228,8 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
         {canAct && w.phase !== 'stopped' ? (
           <Box flexDirection="column">
             <Input
-              key={`msg-${w.name}`}
+              // A new key after each send draws an empty field, whatever the field kept.
+              key={sent ? `msg-${w.name}-${sent}` : `msg-${w.name}`}
               placeholder={`mensaje para ${w.name}`}
               submitLabel="enviar"
               value={drafts.messages[w.name] ?? ''}
@@ -243,7 +249,8 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
 
   const form = (accounts: string[]) => {
     const d = drafts.worker
-    if (!d.account && accounts[0]) d.account = accounts[0]
+    // An account that left the list (or became the hub's) is never sent.
+    if (!accounts.includes(d.account)) d.account = accounts[0] ?? ''
     if (!d.directory && view.hub?.cwd) d.directory = view.hub.cwd
     return (
       <Box key="new-worker" flexDirection="column" borderStyle="round" borderColor={C.info} paddingX={1} rowGap={0}>
@@ -263,7 +270,7 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
               <Select key="nw-effort" options={EFFORTS} value={d.effort} onSelect={(v: string) => (d.effort = v)} />
             </Box>
             <Box columnGap={1}>
-              <Button key="nw-open" label={deck.busy === 'open' ? 'abriendo…' : 'abrir worker'} onPress={() => (deck.busy ? undefined : act.openWorker({ ...d }))} />
+              <Button key="nw-open" label={deck.busy === 'open' ? 'abriendo…' : 'abrir worker'} onPress={() => act.openWorker({ ...d })} />
               <Button key="nw-cancel" plain label="cancelar" onPress={act.toggleForm} />
             </Box>
             <Text color={C.faint}>Se abre en una pestaña de terminal de esa cuenta. Nunca en la del hub ni en auto.</Text>
