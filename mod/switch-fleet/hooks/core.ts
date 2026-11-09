@@ -175,6 +175,24 @@ function liveLimits(beats: Beat[], since: number): { limits: BeatLimits; at: num
   return best
 }
 
+/** Two reset times this close are the same window. */
+const SAME_RESET_MS = 60_000
+
+/**
+ * The account whose quota a session spends, read from its live limits: the one account of the
+ * snapshot with the same weekly reset (a time fixed per account). Null when that is not known or
+ * not unique, and then the session counts for its config dir's account.
+ */
+export function quotaAccountOf(b: Beat, accounts: SnapshotAccount[]): string | null {
+  const own = b.limits?.weeklyResetsAt ? Date.parse(b.limits.weeklyResetsAt) : NaN
+  if (Number.isNaN(own)) return null
+  const hits = accounts.filter(a => {
+    const t = a.usage.weeklyResetsAt ? Date.parse(a.usage.weeklyResetsAt) : NaN
+    return !Number.isNaN(t) && Math.abs(t - own) < SAME_RESET_MS
+  })
+  return hits.length === 1 ? hits[0]!.name : null
+}
+
 function healthOf(a: SnapshotAccount | null, five: Meter, week: Meter): { health: AccountHealth; reason: string | null } {
   if (!a) return { health: 'unknown', reason: 'no está en accounts.json' }
   if (a.auth.status === 'LoggedOut') return { health: 'logged-out', reason: 'login caducado' }
@@ -185,9 +203,10 @@ function healthOf(a: SnapshotAccount | null, five: Meter, week: Meter): { health
   return { health: 'ready', reason: null }
 }
 
-function sessionView(b: Beat, now: number, selfId: string | null): SessionView {
+function sessionView(b: Beat, now: number, selfId: string | null, quotaAccount: string | null = null): SessionView {
   return {
     id: b.sessionId,
+    quotaAccount,
     worker: b.worker,
     rollover: b.rollover,
     waitingUntil: b.waitingUntil,
@@ -225,6 +244,10 @@ export function buildFleet(
     byDir.set(k, [...(byDir.get(k) ?? []), b])
   }
   const snapAt = snapshot?.updatedAt ? Date.parse(snapshot.updatedAt) : 0
+  const snapAccounts = snapshot?.accounts ?? []
+  const dirAccount = new Map(snapAccounts.map(a => [normPath(a.configDir), a.name]))
+  // Whose quota each session spends: its own reading when that names an account, else its config dir's.
+  const spender = new Map(shown.map(b => [b.sessionId, quotaAccountOf(b, snapAccounts) ?? dirAccount.get(normPath(b.configDir)) ?? null]))
   const accounts: AccountView[] = []
   const seen = new Set<string>()
   const order = (s: SessionView[]) =>
@@ -234,7 +257,9 @@ export function buildFleet(
     const k = normPath(a.configDir)
     seen.add(k)
     const mine = byDir.get(k) ?? []
-    const live = liveLimits(mine, Number.isNaN(snapAt) ? 0 : snapAt)
+    // Live limits come from the sessions that spend this account's quota, whatever their config dir.
+    const spending = shown.filter(b => spender.get(b.sessionId) === a.name)
+    const live = liveLimits(spending, Number.isNaN(snapAt) ? 0 : snapAt)
     const five = live && live.limits.fiveHour !== null
       ? meter(live.limits.fiveHour, a.caps.fiveHour, live.limits.fiveHourResetsAt, true)
       : meter(a.usage.fiveHourPercent, a.caps.fiveHour, a.usage.resetsAt, false)
@@ -247,7 +272,7 @@ export function buildFleet(
     const weekNow = expire(week, now)
     const { health, reason } = healthOf(account, fiveNow, weekNow)
     const past = history.get(a.name)
-    const seenLive = samplesFromBeats(mine)
+    const seenLive = samplesFromBeats(spending)
     accounts.push({
       name: a.name,
       plan: a.auth.tier ?? a.auth.plan,
@@ -259,7 +284,7 @@ export function buildFleet(
       weekly: weekNow,
       fiveHourForecast: forecast([...(past?.five ?? []), ...seenLive.five], now, fiveNow.pct, fiveNow.cap, fiveNow.resetsAt, FIVE_LOOKBACK_MS),
       weeklyForecast: forecast([...(past?.week ?? []), ...seenLive.week], now, weekNow.pct, weekNow.cap, weekNow.resetsAt, WEEK_LOOKBACK_MS),
-      sessions: order(mine.map(b => sessionView(b, now, selfId))),
+      sessions: order(mine.map(b => sessionView(b, now, selfId, spender.get(b.sessionId) !== a.name ? (spender.get(b.sessionId) ?? null) : null))),
     })
   }
   // Sessions of a config dir that accounts.json does not list.

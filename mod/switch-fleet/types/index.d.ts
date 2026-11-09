@@ -53,6 +53,11 @@ export type Liveness = 'live' | 'quiet'
 
 export type SessionView = {
   id: string
+  /**
+   * The account whose quota the session spends, when its live limits show it is another account
+   * than its config dir's (the desktop app signed in with another account, say); else null.
+   */
+  quotaAccount: string | null
   worker: string | null
   rollover: Beat['rollover']
   waitingUntil: string | null
