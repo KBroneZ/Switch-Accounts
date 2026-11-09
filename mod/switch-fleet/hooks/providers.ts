@@ -54,16 +54,79 @@ export function parseCodexRollout(text: string, now: number): ProviderView | nul
     if (windows.length === 0) continue
     const plan = typeof r.plan_type === 'string' && /^[a-z0-9_-]{1,20}$/i.test(r.plan_type) ? r.plan_type : null
     const reached = typeof r.rate_limit_reached_type === 'string' && r.rate_limit_reached_type.length > 0
-    return providerView('chatgpt', 'ChatGPT', 'Codex', plan, windows, Number.isNaN(at) ? null : at, reached, now)
+    return providerView({ id: 'chatgpt', name: 'ChatGPT', source: 'Codex', readNote: 'último uso de Codex' }, plan, windows, Number.isNaN(at) ? null : at, reached, now)
   }
   return null
 }
 
-export function providerView(id: string, name: string, source: string, plan: string | null, windows: ProviderWindow[], readAt: number | null, isReached: boolean, now: number): ProviderView {
+// Gemini through Antigravity: `agy -p /usage --output-format json` answers the slash command
+// without a model turn (no tokens) and lists groups of models, each with its own weekly bucket.
+// It is a request to Google with the CLI's own sign-in; register.tsx runs it every few minutes.
+
+const BUCKET_MINUTES: Record<string, number> = { hourly: 60, daily: 1440, weekly: 10080, monthly: 43200 }
+
+/** A group's short name: `Gemini Models` → Gemini, `Claude and GPT models` → Claude/GPT. */
+export function groupLabel(name: string): string {
+  const short = name
+    .replace(/\s*models?\s*$/i, '')
+    .replace(/\s+and\s+/gi, '/')
+    .replace(/[^A-Za-z0-9/.-]/g, '')
+    .slice(0, 12)
+  return short || '?'
+}
+
+function bucketOf(group: string, v: unknown, now: number): ProviderWindow | null {
+  if (!isObj(v)) return null
+  const left = num(v.remaining_fraction)
+  if (left === null) return null
+  const minutes = typeof v.window === 'string' ? (BUCKET_MINUTES[v.window] ?? null) : null
+  const reset = typeof v.reset_time === 'string' ? Date.parse(v.reset_time) : NaN
+  const isPast = !Number.isNaN(reset) && reset <= now
+  const pct = Math.round(Math.max(0, Math.min(1, 1 - left)) * 1000) / 10
+  return {
+    label: `${group} ${windowLabel(minutes)}`,
+    windowMinutes: minutes,
+    pct: isPast ? null : pct,
+    resetsAt: isPast || Number.isNaN(reset) ? null : new Date(reset).toISOString(),
+  }
+}
+
+function jsonOf(text: string): unknown {
+  if (!text.startsWith('{')) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Gemini's weekly limits from what `agy -p /usage --output-format json` printed (log lines before
+ * the JSON are skipped), read at `readAt`; null when the run failed or answered something else.
+ */
+export function parseAgyUsage(text: string, now: number, readAt: number): ProviderView | null {
+  // The whole answer first (in case agy ever pretty-prints it), else its last JSON line.
+  const lastLine = text.split(/\r?\n/).reverse().find(l => l.trimStart().startsWith('{')) ?? ''
+  const d = jsonOf(text.trim()) ?? jsonOf(lastLine.trim())
+  if (!isObj(d) || d.status !== 'SUCCESS' || !isObj(d.command) || !isObj(d.command.data)) return null
+  const groups = d.command.data.groups
+  if (!Array.isArray(groups)) return null
+  const windows = groups.flatMap(g => {
+    if (!isObj(g) || typeof g.name !== 'string' || !Array.isArray(g.buckets)) return []
+    const label = groupLabel(g.name)
+    return g.buckets.map(b => bucketOf(label, b, now)).filter((w): w is ProviderWindow => w !== null)
+  })
+  if (windows.length === 0) return null
+  return providerView({ id: 'gemini', name: 'Gemini', source: 'Antigravity', readNote: 'consultado a Antigravity' }, null, windows, readAt, false, now)
+}
+
+type ProviderId = Pick<ProviderView, 'id' | 'name' | 'source' | 'readNote'>
+
+export function providerView(who: ProviderId, plan: string | null, windows: ProviderWindow[], readAt: number | null, isReached: boolean, now: number): ProviderView {
   const known = windows.filter(w => w.pct !== null)
   const atLimit = isReached || known.some(w => (w.pct ?? 0) >= 100)
   const health: ProviderView['health'] = atLimit && windows.some(w => w.resetsAt !== null) ? 'at-cap' : known.length === 0 ? 'unknown' : 'ready'
-  return { id, name, source, plan, windows, readAt, isStale: readAt === null || now - readAt > STALE_MS, health }
+  return { ...who, plan, windows, readAt, isStale: readAt === null || now - readAt > STALE_MS, health }
 }
 
 /** The part of the status line for each provider: `GPT 99%`. */

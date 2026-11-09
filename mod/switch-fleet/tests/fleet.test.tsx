@@ -174,7 +174,7 @@ test('the pane draws each account and its sessions, on every surface', async ($,
   const built = buildFleet(parseSnapshot(snapshotText), [beat({})], NOW, null)
   const view: FleetView = { ...built, hub: null, providers: [], pipeline: null, isRefreshing: false, error: null }
   on('clock.now', () => ({ value: NOW }))
-  on('state.get', () => ({ value: { value: { shape: 'fleet-6', value: view }, version: 1 } }))
+  on('state.get', () => ({ value: { value: { shape: 'fleet-7', value: view }, version: 1 } }))
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -217,7 +217,7 @@ describe('pipeline', () => {
     const built = buildFleet(parseSnapshot(snapshotText), [], NOW, null)
     const view: FleetView = { ...built, hub: null, providers: [], pipeline: parsePipeline(JSON.stringify(doc), NOW), isRefreshing: false, error: null }
     on('clock.now', () => ({ value: NOW }))
-    on('state.get', () => ({ value: { value: { shape: 'fleet-6', value: view }, version: 1 } }))
+    on('state.get', () => ({ value: { value: { shape: 'fleet-7', value: view }, version: 1 } }))
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ ...PANE, surface })
       expect(await ui.find({ type: 'Text', text: /esperando reinicio/ })).toBeDefined()
