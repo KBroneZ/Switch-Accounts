@@ -26,7 +26,8 @@ function New-LaunchCommand {
       The script the tab runs and the arguments for `wt`. The script travels as -EncodedCommand
       because wt breaks on ';' and quotes. It first drops inherited session variables, then sets
       the account (a $null ConfigDir means the default dir, so CLAUDE_CONFIG_DIR is removed),
-      then starts the CLI. --remote-control always gets an explicit name: without one it would
+      then the Fleet worker name (SWITCH_FLEET_WORKER, removed when there is none), then starts
+      the CLI. --remote-control always gets an explicit name: without one it would
       swallow the prompt as its optional value.
     #>
     param(
@@ -39,7 +40,8 @@ function New-LaunchCommand {
         [AllowNull()] [string] $Model,
         [AllowNull()] [string] $Effort,
         [AllowNull()] [string] $SubagentModel,
-        [AllowNull()] [string] $InitialPrompt
+        [AllowNull()] [string] $InitialPrompt,
+        [AllowNull()] [string] $WorkerName
     )
     $cliArgs = [System.Collections.Generic.List[string]]::new()
     if ($RemoteControlName) { $cliArgs.Add("--remote-control $(ConvertTo-PsLiteral $RemoteControlName)") }
@@ -56,6 +58,9 @@ function New-LaunchCommand {
         $dropLine
         $accountLine
         if ($SubagentModel) { "`$env:CLAUDE_CODE_SUBAGENT_MODEL = $(ConvertTo-PsLiteral $SubagentModel)" }
+        # The Fleet mod reads the worker name; a tab that is no worker must not inherit one.
+        if ($WorkerName) { "`$env:SWITCH_FLEET_WORKER = $(ConvertTo-PsLiteral $WorkerName)" }
+        else { 'Remove-Item Env:SWITCH_FLEET_WORKER -ErrorAction SilentlyContinue' }
         "Set-Location -LiteralPath $(ConvertTo-PsLiteral $WorkingDirectory)"
         "& $(ConvertTo-PsLiteral $ClaudePath) $($cliArgs -join ' ')".TrimEnd()
     ) -join "`n"

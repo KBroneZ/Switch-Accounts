@@ -7,7 +7,8 @@ function Open-ClaudeSession {
         one with the lowest 5-hour usage that is below its caps and ready. The tab gets the
         account's config dir, an optional model (--model), effort (--effort), subagent model
         (CLAUDE_CODE_SUBAGENT_MODEL), Remote Control (--remote-control, always with a name) and a
-        first prompt. Variables inherited from the session that launches it are dropped.
+        first prompt. -WorkerName marks the tab as a Fleet worker (SWITCH_FLEET_WORKER), which the
+        switch-fleet mod uses for its mailbox, context hand-over and resume after a reset. Variables inherited from the session that launches it are dropped.
 
         Nothing starts when the account has not finished its first start or does not trust the
         folder (the tab would wait for someone at the keyboard): the error says what is missing.
@@ -30,6 +31,7 @@ function Open-ClaudeSession {
         [string] $InitialPrompt,
         [string] $Title,
         [string] $Worktree,
+        [string] $WorkerName,
         [ValidateRange(1, 8)] [int] $Count = 1,
         [switch] $PrintOnly,
         [switch] $TrustDirectory,
@@ -42,7 +44,10 @@ function Open-ClaudeSession {
     $preview = $PrintOnly -or $WhatIfPreference
     $request = Resolve-SessionRequest -Account $Account -Directory $Directory -Model $Model -Effort $Effort `
         -SubagentModel $SubagentModel -RemoteControl $RemoteControl -SessionName $SessionName `
-        -InitialPrompt $InitialPrompt -Title $Title -Worktree $Worktree -TrustDirectory $TrustDirectory
+        -InitialPrompt $InitialPrompt -Title $Title -Worktree $Worktree -TrustDirectory $TrustDirectory -WorkerName $WorkerName
+    if ($request.WorkerName -and $Count -gt 1) {
+        Stop-WithSwitchError InvalidArgument '-WorkerName names one session; use -Count 1 and open each worker with its own name.'
+    }
     $config = Get-SwitchAccountConfig -ConfigPath $ConfigPath -NoCreate:$WhatIfPreference
     $plans = @(Get-SessionWorktreePlans -Request $request -Count $Count)
     $checkDir = if ($plans) { $plans[0].Path } else { $request.Directory }

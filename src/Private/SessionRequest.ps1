@@ -5,7 +5,7 @@ function Resolve-SessionRequest {
     param(
         [string] $Account, [string] $Directory, [string] $Model, [string] $Effort, [string] $SubagentModel,
         [bool] $RemoteControl, [string] $SessionName, [string] $InitialPrompt, [string] $Title, [string] $Worktree,
-        [bool] $TrustDirectory
+        [bool] $TrustDirectory, [string] $WorkerName
     )
     $folder = if ($Directory) { $Directory } else { (Get-Location).Path }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
@@ -25,6 +25,7 @@ function Resolve-SessionRequest {
         Title          = ConvertTo-SessionLabel $Title 'Title'
         Worktree       = Assert-BranchName $Worktree
         TrustDirectory = $TrustDirectory
+        WorkerName     = ConvertTo-WorkerName $WorkerName
     }
 }
 

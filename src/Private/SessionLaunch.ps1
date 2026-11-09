@@ -56,7 +56,9 @@ function New-SessionPlan {
     <# The tab of one session: title, Remote Control name, script and wt arguments. #>
     param($Request, $Account, $Settings, [string] $Folder, [int] $Index, [int] $Count, [string] $ClaudePath)
     $suffix = if ($Count -gt 1) { " #$Index" } else { '' }
-    $baseTitle = if ($Request.Title) { $Request.Title } else { "Claude $($Account.Name)" }
+    $baseTitle = if ($Request.Title) { $Request.Title }
+    elseif ($Request.WorkerName) { "$($Request.WorkerName) · $($Account.Name)" }
+    else { "Claude $($Account.Name)" }
     $baseRc = if ($Request.SessionName) { $Request.SessionName }
     elseif ($Request.Title) { $Request.Title }
     else { "$(ConvertTo-SafeLabel (Split-Path -Leaf $Folder)) · $($Account.Name)" }
@@ -64,7 +66,8 @@ function New-SessionPlan {
     $configDir = if ($Account.IsDefaultConfigDir) { $null } else { $Account.ConfigDir }
     $command = New-LaunchCommand -AccountName $Account.Name -ConfigDir $configDir -ClaudePath $ClaudePath `
         -WorkingDirectory $Folder -Title ($baseTitle + $suffix) -RemoteControlName $rcName -Model $Settings.Model `
-        -Effort $Settings.Effort -SubagentModel $Settings.SubagentModel -InitialPrompt $Request.InitialPrompt
+        -Effort $Settings.Effort -SubagentModel $Settings.SubagentModel -InitialPrompt $Request.InitialPrompt `
+        -WorkerName $Request.WorkerName
     [pscustomobject]@{
         Title             = $baseTitle + $suffix
         RemoteControlName = $rcName

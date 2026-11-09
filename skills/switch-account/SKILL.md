@@ -73,6 +73,15 @@ expired. Tell the user and give them that command to run themselves in a termina
 browser sign-in). Never run `claude auth login` for them and never pick another account to get
 around it.
 
+## Hub mode
+
+In a session of the hub account (`hubAccount` of the switch-fleet plugin, default A), open and run
+workers with the `fleet_*` tools instead of this script: `fleet_open_worker` (account, worker name,
+folder, brief, optional worktree, model, effort), `fleet_status`, `fleet_send`,
+`fleet_stop_worker`. Name the account; never `auto`, never the hub's. When the tool says the account
+is not available, report it and its reset time; do not pick another account. Behind the tool the
+script runs with `-WorkerName <name>`.
+
 ## Watching the accounts
 
 `-List` also saves `~/.claude-switch/status.json`. When the user wants to see what every account

@@ -25,6 +25,17 @@ export type Beat = {
   limits: BeatLimits | null
   /** When `limits` was read; an idle rewrite of the heartbeat does not move it. */
   limitsAt: number | null
+  /** Hub mode: the worker name this session was opened as (SWITCH_FLEET_WORKER). */
+  worker: string | null
+  /** Hub mode: none, requested (writing its hand-over) or ready (wants a successor). */
+  rollover: 'none' | 'requested' | 'ready'
+  rolloverAt: number | null
+  /** Hub mode: the reset this worker waits for, when its account is at a limit. */
+  waitingUntil: string | null
+  /** The first line of the last answer, masked and cut short. */
+  lastReply: string | null
+  /** Hub mode: the worker answered ENCARGO TERMINADO and was given nothing since. */
+  finished: boolean
   turns: number
   startedAt: number
   stateSince: number
@@ -42,6 +53,10 @@ export type Liveness = 'live' | 'quiet'
 
 export type SessionView = {
   id: string
+  worker: string | null
+  rollover: Beat['rollover']
+  waitingUntil: string | null
+  lastReply: string | null
   isSelf: boolean
   liveness: Liveness
   state: BeatState
