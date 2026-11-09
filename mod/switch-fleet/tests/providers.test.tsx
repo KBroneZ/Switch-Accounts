@@ -103,7 +103,7 @@ describe('antigravity usage', () => {
       { label: 'Claude/GPT 7d', windowMinutes: 10080, pct: 75, resetsAt: '2030-01-15T20:26:10.000Z' },
     ])
     expect(p.readAt).toBe(READ_AT)
-    expect(p.readNote).toBe('consultado a Antigravity')
+    expect(p.readNote).toBe('asked Antigravity')
     expect(p.health).toBe('ready')
   })
 
@@ -124,7 +124,7 @@ describe('antigravity usage', () => {
     expect(parseAgyUsage('', NOW, NOW)).toBeNull()
     expect(parseAgyUsage('not json', NOW, NOW)).toBeNull()
     expect(parseAgyUsage(JSON.stringify({ status: 'ERROR', command: { name: 'usage', data: { groups: [] } } }), NOW, NOW)).toBeNull()
-    expect(parseAgyUsage(JSON.stringify({ status: 'SUCCESS', response: 'hola' }), NOW, NOW)).toBeNull()
+    expect(parseAgyUsage(JSON.stringify({ status: 'SUCCESS', response: 'hello' }), NOW, NOW)).toBeNull()
     const odd = JSON.parse(agyOutput(1, 1))
     odd.command.data.groups[0].buckets[0].remaining_fraction = 'x'
     odd.command.data.groups[1].name = '<b>Some Very Long Group Name</b>'
@@ -136,8 +136,8 @@ describe('antigravity usage', () => {
   test('status line and alerts name the group', () => {
     const p = parseAgyUsage(agyOutput(0.95, 0.04), NOW, READ_AT)!
     expect(providerStatus([p])).toEqual(['Gemini 96%'])
-    const alerts = providerAlerts([p], NOW, () => '15 ene')
-    expect(alerts.map(a => a.text)).toEqual(['Gemini: 96 % usado en la ventana de Claude/GPT 7d; se reinicia 15 ene'])
+    const alerts = providerAlerts([p], NOW, () => '15 Jan')
+    expect(alerts.map(a => a.text)).toEqual(['Gemini: 96% used in the Claude/GPT 7d window; resets 15 Jan'])
   })
 })
 
@@ -146,16 +146,16 @@ describe('providers for the hub', () => {
     const gpt = parseCodexRollout(event(goPlan), NOW)!
     const gem = parseAgyUsage(agyOutput(1, 0.25), NOW, NOW - 120_000)!
     expect(providerLines([gpt, gem], NOW)).toEqual([
-      'ChatGPT (vía Codex, plan go): disponible · 30d 99% (reinicio 2030-01-25T16:18:25.000Z) · leído hace 1 h',
-      'Gemini (vía Antigravity): disponible · Gemini 7d 0% (reinicio 2030-01-15T20:26:10.000Z) · Claude/GPT 7d 75% (reinicio 2030-01-15T20:26:10.000Z) · leído hace 2 min',
+      'ChatGPT (via Codex, plan go): available · 30d 99% (reset 2030-01-25T16:18:25.000Z) · read 1 h ago',
+      'Gemini (via Antigravity): available · Gemini 7d 0% (reset 2030-01-15T20:26:10.000Z) · Claude/GPT 7d 75% (reset 2030-01-15T20:26:10.000Z) · read 2 min ago',
     ])
   })
 
   test('at the limit, unknown and stale readings say so', () => {
     const capped = parseCodexRollout(event({ ...goPlan, primary: { ...goPlan.primary, used_percent: 100 } }, new Date(NOW - STALE_MS - 60_000).toISOString()), NOW)!
-    expect(providerLines([capped], NOW)[0]).toMatch(/^ChatGPT \(vía Codex, plan go\): en su límite · 30d 100% .* · leído hace 6 h \(antiguo\)$/)
+    expect(providerLines([capped], NOW)[0]).toMatch(/^ChatGPT \(via Codex, plan go\): at its limit · 30d 100% .* · read 6 h ago \(old\)$/)
     const unknown = parseAgyUsage(agyOutput(0.5, 0.5, '2030-01-10T11:00:00Z'), NOW, NOW)!
-    expect(providerLines([unknown], NOW)[0]).toBe('Gemini (vía Antigravity): sin dato · Gemini 7d ? · Claude/GPT 7d ? · leído hace 0 min')
+    expect(providerLines([unknown], NOW)[0]).toBe('Gemini (via Antigravity): no data · Gemini 7d ? · Claude/GPT 7d ? · read 0 min ago')
   })
 })
 
@@ -168,9 +168,9 @@ describe('provider status and alerts', () => {
   })
 
   test('warns once per window near or at the limit', () => {
-    const alerts = providerAlerts([p], NOW, () => '25 nov')
+    const alerts = providerAlerts([p], NOW, () => '25 Nov')
     expect(alerts).toHaveLength(1)
-    expect(alerts[0]!.text).toBe('ChatGPT: 99 % usado en la ventana de 30d; se reinicia 25 nov')
+    expect(alerts[0]!.text).toBe('ChatGPT: 99% used in the 30d window; resets 25 Nov')
     expect(providerAlerts([{ ...p, windows: [{ ...p.windows[0]!, pct: 50 }] }], NOW, () => '')).toHaveLength(0)
   })
 })
@@ -213,9 +213,9 @@ test('the ChatGPT card is drawn beside the accounts, on the desktop and in the t
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /^ChatGPT$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /vía Codex/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /via Codex/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /99%/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /último uso de Codex/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /last Codex use/ })).toBeDefined()
     await ui.unmount()
   }
 })
@@ -230,10 +230,10 @@ test('the Gemini card shows each group of models', async ($, on) => {
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /^Gemini$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /vía Antigravity/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /via Antigravity/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Claude\/GPT 7d/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /40%/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /consultado a Antigravity/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /asked Antigravity/ })).toBeDefined()
     await ui.unmount()
   }
 })

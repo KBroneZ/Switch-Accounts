@@ -1,8 +1,8 @@
 # What each executor can and cannot do
 
 Read this before planning. A task that no executor can finish, or that hides a step only the user
-can do, is not planned as if it could run: it is split, rewritten, or listed under "lo que tienes
-que hacer tú". When a fact here and `fleet_status` disagree, `fleet_status` wins (it is live).
+can do, is not planned as if it could run: it is split, rewritten, or listed under "What you need
+to do". When a fact here and `fleet_status` disagree, `fleet_status` wins (it is live).
 
 ## The hub (this session)
 

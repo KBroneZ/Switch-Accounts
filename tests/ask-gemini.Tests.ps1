@@ -49,15 +49,15 @@ Describe 'skills/fleet-director/scripts/ask-gemini.ps1' {
 
         $r.Exit | Should -Be 0
         $text = Get-Content -LiteralPath $out -Raw
-        $text | Should -Match '(?m)^estado: SIN VERIFICAR$'
-        $text | Should -Match '(?m)^modelo: gemini-3\.8-flash-high$'
+        $text | Should -Match '(?m)^status: UNVERIFIED$'
+        $text | Should -Match '(?m)^model: gemini-3\.8-flash-high$'
         $text | Should -Match '--mode \| plan'
         $text | Should -Match '--sandbox'
         $text | Should -Match '--model \| gemini-3\.8-flash-high'
         $text | Should -Match '--effort \| high'
         $text | Should -Match 'Resume este texto'
         $text | Should -Not -Match 'dangerously'
-        $text | Should -Match '(?m)^carpeta: '
+        $text | Should -Match '(?m)^folder: '
     }
 
     It 'without -Directory, runs in an empty folder' {
@@ -67,7 +67,7 @@ Describe 'skills/fleet-director/scripts/ask-gemini.ps1' {
         $r = Invoke-AskGemini @('-Prompt', 'hola', '-Out', $out, '-AgyPath', $agy)
 
         $r.Exit | Should -Be 0
-        Get-Content -LiteralPath $out -Raw | Should -Match '(?m)^carpeta: ninguna$'
+        Get-Content -LiteralPath $out -Raw | Should -Match '(?m)^folder: none$'
     }
 
     It 'refuses a folder that holds a secret-looking file, and allows .env.example' {

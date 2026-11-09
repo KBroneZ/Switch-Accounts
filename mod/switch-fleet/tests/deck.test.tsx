@@ -55,7 +55,7 @@ const beat = (over: Partial<Beat>): Beat => ({
   rollover: 'none',
   rolloverAt: null,
   waitingUntil: null,
-  lastReply: 'Tests verdes',
+  lastReply: 'Tests green',
   finished: false,
   turns: 3,
   startedAt: NOW - 50_000,
@@ -98,10 +98,10 @@ describe('worker phases', () => {
   })
 
   test('a worker that finished and closed its tab reads as finished, with its last answer', () => {
-    const closed = beat({ finished: true, state: 'ended', lastReply: 'ENCARGO TERMINADO: hecho', updatedAt: NOW - 20 * 60_000 })
+    const closed = beat({ finished: true, state: 'ended', lastReply: 'TASK DONE: done', updatedAt: NOW - 20 * 60_000 })
     const [w] = buildWorkers([record({ openedAt: NOW - 30 * 60_000 })], [{ ...closed, startedAt: NOW - 25 * 60_000 }], 'A', NOW)
     expect(w?.phase).toBe('finished')
-    expect(w?.lastReply).toBe('ENCARGO TERMINADO: hecho')
+    expect(w?.lastReply).toBe('TASK DONE: done')
     expect(w?.since).toBe(NOW - 20 * 60_000)
   })
 
@@ -123,15 +123,15 @@ describe('worker phases', () => {
 
   test('words each phase', () => {
     const [w] = buildWorkers([record({})], [beat({ waitingUntil: '2030-01-01T14:00:00Z' })], 'A', NOW)
-    expect(phaseLabel(w!, () => '14:00')).toBe('esperando reinicio · 14:00')
-    expect(phaseLabel({ ...w!, phase: 'working' }, () => '')).toBe('trabajando · Edit: src/app.ts')
+    expect(phaseLabel(w!, () => '14:00')).toBe('waiting for reset · 14:00')
+    expect(phaseLabel({ ...w!, phase: 'working' }, () => '')).toBe('working · Edit: src/app.ts')
   })
 })
 
 describe('task board', () => {
   test('a brief’s first line is the task title', () => {
-    expect(briefTitle('# Arreglar el login\n\nmás')).toBe('Arreglar el login')
-    expect(briefTitle('\n\n- paso uno')).toBe('paso uno')
+    expect(briefTitle('# Fix the login\n\nmore')).toBe('Fix the login')
+    expect(briefTitle('\n\n- step one')).toBe('step one')
     expect(briefTitle('')).toBeNull()
     expect(briefTitle('x'.repeat(200))?.length).toBe(90)
   })
@@ -146,10 +146,10 @@ describe('task board', () => {
     expect(ws.map(w => w.name)).toEqual(['high', 'low', 'done'])
   })
 
-  test('a record without a priority, or with an odd one, reads as media', () => {
+  test('a record without a priority, or with an odd one, reads as media (medium)', () => {
     const { priority: _drop, ...old } = record({})
     expect(parseWorker(JSON.stringify(old))?.priority).toBe('media')
-    expect(parseWorker(JSON.stringify({ ...old, priority: 'urgente' }))?.priority).toBe('media')
+    expect(parseWorker(JSON.stringify({ ...old, priority: 'urgent' }))?.priority).toBe('media')
     expect(parseWorker(JSON.stringify(record({ priority: 'baja' })))?.priority).toBe('baja')
   })
 })
@@ -197,7 +197,7 @@ const hubView = (isHub: boolean): HubView => ({
   isHub,
   rolloverPercent: 40,
   cwd: 'C:/src/app',
-  workers: buildWorkers([record({ priority: 'alta' })], [beat({})], 'A', NOW, new Map([['w1', '# Arreglar el login\n\nDetalles…']])),
+  workers: buildWorkers([record({ priority: 'alta' })], [beat({})], 'A', NOW, new Map([['w1', '# Fix the login\n\nDetails…']])),
 })
 
 function seed(on: Parameters<TestBody>[1], view: FleetView, deck: DeckView) {
@@ -208,20 +208,20 @@ function seed(on: Parameters<TestBody>[1], view: FleetView, deck: DeckView) {
 }
 
 test('the desktop Deck draws gauges, the hub lanes and their controls', async ($, on) => {
-  seed(on, viewWith(hubView(true)), { ...EMPTY, isFormOpen: true, note: 'Mensaje 1 en cola para w1; le llega en cuanto esté libre.' })
+  seed(on, viewWith(hubView(true)), { ...EMPTY, isFormOpen: true, note: 'Message 1 queued for w1; it gets there once the worker is free.' })
   for (const surface of ['desktop', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /FLEET DECK/ })).toBeDefined()
     expect(await ui.find({ type: 'Svg' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /trabajando · Edit/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /working · Edit/ })).toBeDefined()
     expect(await ui.find({ key: 'msg-w1' })).toBeDefined()
     expect(await ui.find({ key: 'stop-w1' })).toBeDefined()
     expect(await ui.find({ key: 'nw-brief' })).toBeDefined()
     expect(await ui.find({ key: 'nw-account' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /Mensaje 1 en cola/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Message 1 queued/ })).toBeDefined()
     expect(await ui.find({ key: 'open-B' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^Arreglar el login$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /▲ alta/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Fix the login$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /▲ high/ })).toBeDefined()
     expect(await ui.find({ key: 'prio-w1' })).toBeDefined()
     expect(await ui.find({ key: 'nw-priority' })).toBeDefined()
     await ui.unmount()
@@ -231,7 +231,7 @@ test('the desktop Deck draws gauges, the hub lanes and their controls', async ($
 test('outside the hub the Deck shows the lanes without controls', async ($, on) => {
   seed(on, viewWith(hubView(false)), EMPTY)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /Los controles están en las sesiones de la cuenta A/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /The controls are in the sessions of account A/ })).toBeDefined()
   expect(await ui.find({ key: 'msg-w1' })).toBeUndefined()
   expect(await ui.find({ key: 'nw-toggle' })).toBeUndefined()
   await ui.unmount()
@@ -240,14 +240,14 @@ test('outside the hub the Deck shows the lanes without controls', async ($, on) 
 test('the stop button asks for a second press, armed for a few seconds only', async ($, on) => {
   seed(on, viewWith(hubView(true)), { ...EMPTY, confirmStop: 'w1', confirmAt: NOW - 2_000 })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ key: 'stop-w1' }))?.text).toContain('pulsa otra vez')
+  expect((await ui.find({ key: 'stop-w1' }))?.text).toContain('press again')
   await ui.unmount()
 })
 
 test('a first stop press long ago is no longer armed', async ($, on) => {
   seed(on, viewWith(hubView(true)), { ...EMPTY, confirmStop: 'w1', confirmAt: NOW - 60_000 })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ key: 'stop-w1' }))?.text).not.toContain('pulsa otra vez')
+  expect((await ui.find({ key: 'stop-w1' }))?.text).not.toContain('press again')
   await ui.unmount()
 })
 

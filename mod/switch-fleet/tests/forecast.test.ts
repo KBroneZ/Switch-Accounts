@@ -97,8 +97,8 @@ describe('alerts', () => {
   })
 
   test('words the pace for the pane', () => {
-    expect(forecastText({ ratePerHour: 20, capAt: NOW + 60 * min, atReset: null }, NOW, 0)).toEqual({ text: 'ritmo 20%/h → tope ~13:00', isWarning: true })
-    expect(forecastText({ ratePerHour: 5, capAt: null, atReset: 50 }, NOW, 0)?.text).toBe('ritmo 5%/h → ~50% al reinicio')
+    expect(forecastText({ ratePerHour: 20, capAt: NOW + 60 * min, atReset: null }, NOW, 0)).toEqual({ text: 'pace 20%/h → cap ~13:00', isWarning: true })
+    expect(forecastText({ ratePerHour: 5, capAt: null, atReset: 50 }, NOW, 0)?.text).toBe('pace 5%/h → ~50% at reset')
     expect(forecastText({ ratePerHour: 0.2, capAt: null, atReset: 36 }, NOW, 0)).toBeNull()
   })
 })

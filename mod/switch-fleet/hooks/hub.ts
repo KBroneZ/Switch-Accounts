@@ -9,7 +9,6 @@ import { isShown, normPath, shorten } from './core'
 import {
   ABSOLUTE_PATH,
   appendInbox,
-  isPriority,
   earlierLiveSession,
   owesSuccessor,
   lastInboxSeq,
@@ -23,6 +22,9 @@ import {
   MODEL,
   needsSuccessor,
   parseWorker,
+  PRIORITY_INPUTS,
+  PRIORITY_LABEL,
+  toPriority,
   WORKER_NAME,
   workerStartPrompt,
 } from './hub-core'
@@ -65,7 +67,7 @@ export async function registerHubTools($: EngineInterface) {
         worktree: { type: 'string', description: 'Optional branch for a new worktree under <directory>/.claude/worktrees.' },
         model: { type: 'string', description: 'Optional: opus, sonnet, haiku, fable or a claude-* id.' },
         effort: { type: 'string', description: 'Optional: low, medium, high, xhigh or max.' },
-        priority: { type: 'string', enum: ['alta', 'media', 'baja'], description: 'Optional task priority shown in the Fleet pane (default media).' },
+        priority: { type: 'string', enum: PRIORITY_INPUTS, description: 'Optional task priority shown in the Fleet pane: high, medium or low (default medium). alta, media, baja are accepted too.' },
       },
       required: ['account', 'worker', 'directory', 'brief'],
       additionalProperties: false,
@@ -115,7 +117,7 @@ const field = (input: Record<string, unknown>, key: string) => (typeof input[key
 
 /** Opens the tab of one worker generation. Returns the folder it opened in, or throws with the script's words. */
 async function openTab($: EngineInterface, record: WorkerRecord, worktree: string | null): Promise<string> {
-  if (!isWorkerAccount(record.account, S.cfg.hubAccount)) throw new Error(`la cuenta ${record.account} no puede llevar workers`)
+  if (!isWorkerAccount(record.account, S.cfg.hubAccount)) throw new Error(`account ${record.account} cannot carry workers`)
   const args = ['-Account', record.account, '-WorkerName', record.name, '-Directory', record.directory, '-Json',
     '-InitialPrompt', workerStartPrompt(record.name, record.account, S.paths!.workers, record.generation)]
   if (worktree) args.push('-Worktree', worktree)
@@ -133,10 +135,10 @@ async function openTab($: EngineInterface, record: WorkerRecord, worktree: strin
 
 function accountProblem(accounts: AccountView[], name: string): string | null {
   const a = accounts.find(x => x.name.toLowerCase() === name.toLowerCase())
-  if (!a) return `la cuenta ${name} no está en accounts.json`
+  if (!a) return `account ${name} is not in accounts.json`
   if (a.health === 'ready') return null
-  const reset = a.fiveHour.resetsAt ? `; reinicio de 5 h: ${a.fiveHour.resetsAt}` : ''
-  return `la cuenta ${a.name} no está disponible (${a.reason ?? a.health})${reset}`
+  const reset = a.fiveHour.resetsAt ? `; 5 h reset: ${a.fiveHour.resetsAt}` : ''
+  return `account ${a.name} is not available (${a.reason ?? a.health})${reset}`
 }
 
 /** A live session of this worker that started after the one asking for a successor. */
@@ -155,8 +157,8 @@ async function queueMail($: EngineInterface, name: string, text: string, now: nu
 }
 
 export async function hubToolCall($: EngineInterface, tool: HubTool, input: Record<string, unknown>, accounts: AccountView[], beats: Beat[], providers: ProviderView[] = []): Promise<string> {
-  if (!S.paths) return 'Fleet aún no ha arrancado en esta sesión.'
-  if (!isHub()) return `Solo el hub (cuenta ${S.cfg.hubAccount}) usa estas herramientas; esta sesión es de la cuenta ${S.account ?? 'desconocida'}.`
+  if (!S.paths) return 'Fleet has not started in this session yet.'
+  if (!isHub()) return `Only the hub (account ${S.cfg.hubAccount}) uses these tools; this session is on account ${S.account ?? 'unknown'}.`
   const now = await $.clock.now()
   if (tool === 'fleet_status') {
     const byDir = new Map<string, string>()
@@ -170,23 +172,23 @@ export async function hubToolCall($: EngineInterface, tool: HubTool, input: Reco
     }
     const shown = beats.filter(b => isShown(b, now))
     const lines = [compactStatus(accounts, shown, dir => byDir.get(normPath(dir)) ?? dir, now), ...providerLines(providers, now)].filter(Boolean)
-    return lines.join('\n') || 'Sin cuentas ni sesiones todavía.'
+    return lines.join('\n') || 'No accounts or sessions yet.'
   }
   const name = field(input, 'worker')
-  if (!WORKER_NAME.test(name)) return 'Nombre de worker no válido: 1-30 letras, dígitos, . _ -'
+  if (!WORKER_NAME.test(name)) return 'Invalid worker name: 1-30 letters, digits, . _ -'
   if (tool === 'fleet_send') {
     const text = field(input, 'text')
-    if (!text || text.length > MAX_MESSAGE) return `El mensaje debe tener entre 1 y ${MAX_MESSAGE} caracteres.`
-    if (!(await readRecord($, name))) return `No hay ningún worker ${name}.`
+    if (!text || text.length > MAX_MESSAGE) return `The message must be 1 to ${MAX_MESSAGE} characters.`
+    if (!(await readRecord($, name))) return `There is no worker ${name}.`
     const seq = await queueMail($, name, text, now)
-    return `Mensaje ${seq} en cola para ${name}; le llega en cuanto esté libre.`
+    return `Message ${seq} queued for ${name}; it gets there once the worker is free.`
   }
   if (tool === 'fleet_stop_worker') {
     const record = await readRecord($, name)
-    if (!record) return `No hay ningún worker ${name}.`
+    if (!record) return `There is no worker ${name}.`
     await writeRecord($, { ...record, state: 'stopped' })
-    await queueMail($, name, `El hub te pide parar: termina el paso en curso, escribe el relevo en ${handoverPath(S.paths.workers, name)} y no empieces nada más.`, now)
-    return `Worker ${name}: parará al acabar su paso y no se abrirá relevo.`
+    await queueMail($, name, `The hub asks you to stop: finish the current step, write your hand-over to ${handoverPath(S.paths.workers, name)} and start nothing else.`, now)
+    return `Worker ${name}: will stop after its current step; no successor will open.`
   }
   return openWorker($, name, input, accounts, beats, now)
 }
@@ -199,24 +201,25 @@ async function openWorker($: EngineInterface, name: string, input: Record<string
   const model = field(input, 'model') || null
   const effort = field(input, 'effort') || null
   const priorityIn = field(input, 'priority')
-  if (priorityIn && !isPriority(priorityIn)) return 'priority debe ser alta, media o baja.'
-  const priority: Priority = isPriority(priorityIn) ? priorityIn : 'media'
+  const parsedPriority = toPriority(priorityIn)
+  if (priorityIn && !parsedPriority) return 'priority must be high, medium or low.'
+  const priority: Priority = parsedPriority ?? 'media'
   if (!isWorkerAccount(account, S.cfg.hubAccount)) {
-    return `Nombra una cuenta de trabajo concreta (p. ej. B): ni "auto" ni la del hub (${S.cfg.hubAccount}).`
+    return `Name a specific work account (e.g. B): not "auto" and not the hub's (${S.cfg.hubAccount}).`
   }
-  if (!ABSOLUTE_PATH.test(directory) || /[\r\n]/.test(directory)) return 'directory debe ser una ruta absoluta.'
-  if (!brief || brief.length > MAX_BRIEF) return `El encargo debe tener entre 1 y ${MAX_BRIEF} caracteres.`
-  if (worktree && !BRANCH.test(worktree)) return 'worktree no es un nombre de rama válido.'
-  if (model && !MODEL.test(model)) return 'model no válido.'
-  if (effort && !EFFORT.test(effort)) return 'effort no válido.'
+  if (!ABSOLUTE_PATH.test(directory) || /[\r\n]/.test(directory)) return 'directory must be an absolute path.'
+  if (!brief || brief.length > MAX_BRIEF) return `The brief must be 1 to ${MAX_BRIEF} characters.`
+  if (worktree && !BRANCH.test(worktree)) return 'worktree is not a valid branch name.'
+  if (model && !MODEL.test(model)) return 'Invalid model.'
+  if (effort && !EFFORT.test(effort)) return 'Invalid effort.'
   const existing = await readRecord($, name)
   if (existing && existing.state === 'active' && existing.account.toLowerCase() !== account.toLowerCase()) {
     // A worker never changes account: that is how work would move to get around a limit.
-    return `El worker ${name} es de la cuenta ${existing.account}. Un worker no cambia de cuenta: para ese con fleet_stop_worker o usa otro nombre.`
+    return `Worker ${name} belongs to account ${existing.account}. A worker never changes account: stop it with fleet_stop_worker or use another name.`
   }
-  if (liveWorker(beats, name, now)) return `Ya hay un worker ${name} en marcha; usa otro nombre o fleet_send.`
+  if (liveWorker(beats, name, now)) return `Worker ${name} is already running; use another name or fleet_send.`
   const problem = accountProblem(accounts, account)
-  if (problem) return `No abro el worker: ${problem}. Espera a que esa cuenta esté lista; no se usa otra en su lugar.`
+  if (problem) return `Not opening the worker: ${problem}. Wait until that account is ready; no other account is used instead.`
   const record: WorkerRecord = {
     schema: 1,
     name,
@@ -241,23 +244,24 @@ async function openWorker($: EngineInterface, name: string, input: Record<string
   try {
     const folder = await openTab($, record, worktree)
     if (folder !== directory) await writeRecord($, { ...record, directory: folder }, true)
-    return `Worker ${name} abierto en la cuenta ${account}, en ${folder}. Su encargo está en ${briefPath(S.paths!.workers, name)}.`
+    return `Worker ${name} opened on account ${account}, in ${folder}. Its brief is in ${briefPath(S.paths!.workers, name)}.`
   } catch (err) {
     await writeRecord($, { ...record, state: 'stopped' }).catch(() => undefined)
-    return `No se abrió el worker ${name}: ${err instanceof Error ? err.message : String(err)}`
+    return `Worker ${name} did not open: ${err instanceof Error ? err.message : String(err)}`
   }
 }
 
 /** The Deck's priority control: hub sessions only, an existing worker, one of the three values. */
-export async function setWorkerPriority($: EngineInterface, name: string, priority: string): Promise<string> {
-  if (!S.paths) return 'Fleet aún no ha arrancado en esta sesión.'
-  if (!isHub()) return `Solo el hub (cuenta ${S.cfg.hubAccount}) cambia prioridades.`
-  if (!WORKER_NAME.test(name) || !isPriority(priority)) return 'Prioridad o worker no válidos.'
+export async function setWorkerPriority($: EngineInterface, name: string, input: string): Promise<string> {
+  if (!S.paths) return 'Fleet has not started in this session yet.'
+  if (!isHub()) return `Only the hub (account ${S.cfg.hubAccount}) changes priorities.`
+  const priority = toPriority(input)
+  if (!WORKER_NAME.test(name) || !priority) return 'Invalid priority or worker.'
   const record = await readRecord($, name)
-  if (!record) return `No hay ningún worker ${name}.`
-  if (record.priority === priority) return `${name} ya tiene prioridad ${priority}.`
+  if (!record) return `There is no worker ${name}.`
+  if (record.priority === priority) return `${name} already has priority ${PRIORITY_LABEL[priority]}.`
   await writeRecord($, { ...record, priority }, true)
-  return `${name}: prioridad ${priority}.`
+  return `${name}: priority ${PRIORITY_LABEL[priority]}.`
 }
 
 /**
@@ -308,12 +312,12 @@ async function openOwedSuccessors($: EngineInterface, accounts: AccountView[]) {
       const next: WorkerRecord = { ...record, generation: record.generation + 1, openedAt: now, successorDue: null }
       if (!(await claim($, next))) continue // another hub session took it
       await openTab($, next, null)
-      await $.ui.toast(`Fleet: relevo ${next.generation} de ${name} abierto en la cuenta ${next.account}.`)
+      await $.ui.toast(`Fleet: successor ${next.generation} of ${name} opened on account ${next.account}.`)
     } catch (err) {
       retryAfter.set(name, now + RETRY_MS)
       // Back to the generation that asked, still owed, so the next try can claim it again.
       await writeRecord($, { ...record, claimedBy: null }, true).catch(() => undefined)
-      S.lastError = shorten(`Relevo de ${name} no abierto: ${err instanceof Error ? err.message : String(err)}`, 200)
+      S.lastError = shorten(`Successor of ${name} not opened: ${err instanceof Error ? err.message : String(err)}`, 200)
     } finally {
       S.opening.delete(name)
     }

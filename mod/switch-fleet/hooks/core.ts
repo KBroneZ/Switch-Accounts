@@ -197,12 +197,12 @@ export function quotaAccountOf(b: Beat, accounts: SnapshotAccount[]): string | n
 }
 
 function healthOf(a: SnapshotAccount | null, five: Meter, week: Meter): { health: AccountHealth; reason: string | null } {
-  if (!a) return { health: 'unknown', reason: 'no está en accounts.json' }
-  if (a.auth.status === 'LoggedOut') return { health: 'logged-out', reason: 'login caducado' }
+  if (!a) return { health: 'unknown', reason: 'not in accounts.json' }
+  if (a.auth.status === 'LoggedOut') return { health: 'logged-out', reason: 'login expired' }
   const over = (m: Meter) => m.pct !== null && m.cap !== null && m.pct >= m.cap
-  if (over(five) || over(week)) return { health: 'at-cap', reason: over(five) ? 'tope de 5 h' : 'tope semanal' }
-  if (five.pct === null) return { health: 'unknown', reason: a.reason ?? 'uso desconocido' }
-  if (a.onboarding !== 'Ready' && a.onboarding !== 'Untrusted') return { health: 'not-ready', reason: `sin preparar (${a.onboarding})` }
+  if (over(five) || over(week)) return { health: 'at-cap', reason: over(five) ? '5 h cap' : 'weekly cap' }
+  if (five.pct === null) return { health: 'unknown', reason: a.reason ?? 'usage unknown' }
+  if (a.onboarding !== 'Ready' && a.onboarding !== 'Untrusted') return { health: 'not-ready', reason: `not set up (${a.onboarding})` }
   return { health: 'ready', reason: null }
 }
 
@@ -298,7 +298,7 @@ export function buildFleet(
       name: baseName(mine[0]?.configDir ?? k),
       plan: null,
       health: 'unknown',
-      reason: 'no está en accounts.json',
+      reason: 'not in accounts.json',
       loginCommand: null,
       loginExpiresAt: null,
       fiveHour: none,
@@ -368,9 +368,9 @@ export function fmtSpan(ms: number) {
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
-const DAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-/** "22:20" today, "lun 18:00" within a week, "27/11" further; in the local zone of `offsetMin`. */
+/** "22:20" today, "Mon 18:00" within a week, "27/11" further; in the local zone of `offsetMin`. */
 export function fmtWhen(iso: string, now: number, offsetMin: number) {
   const t = Date.parse(iso)
   if (Number.isNaN(t)) return '?'
@@ -387,7 +387,7 @@ export function statusText(fleet: Pick<FleetView, 'accounts'>): string | undefin
   const parts = fleet.accounts.map(a => {
     if (a.health === 'logged-out') return `${a.name} login!`
     if (a.fiveHour.pct === null) return `${a.name} ?`
-    return `${a.name} ${Math.round(a.fiveHour.pct)}%${a.health === 'at-cap' ? ' tope' : ''}`
+    return `${a.name} ${Math.round(a.fiveHour.pct)}%${a.health === 'at-cap' ? ' cap' : ''}`
   })
   return parts.length ? `fleet ${parts.join(' · ')}` : undefined
 }
@@ -400,9 +400,9 @@ export function healthChanges(before: FleetView | null, after: Pick<FleetView, '
   for (const a of after.accounts) {
     const prev = was.get(a.name)
     if (!prev || prev === a.health) continue
-    if (a.health === 'logged-out') out.push(`Cuenta ${a.name}: login caducado`)
-    else if (a.health === 'at-cap') out.push(`Cuenta ${a.name}: llegó a su tope (${a.reason})`)
-    else if (a.health === 'ready' && (prev === 'at-cap' || prev === 'logged-out')) out.push(`Cuenta ${a.name}: disponible de nuevo`)
+    if (a.health === 'logged-out') out.push(`Account ${a.name}: login expired`)
+    else if (a.health === 'at-cap') out.push(`Account ${a.name}: reached its cap (${a.reason})`)
+    else if (a.health === 'ready' && (prev === 'at-cap' || prev === 'logged-out')) out.push(`Account ${a.name}: available again`)
   }
   return out
 }
@@ -423,23 +423,23 @@ export function alertsFor(accounts: AccountView[], now: number, offsetMin: numbe
   for (const a of accounts) {
     const five = a.fiveHourForecast
     if (a.health === 'ready' && five?.capAt && five.capAt - now < CAP_SOON_MS) {
-      out.push({ id: `${a.name}:cap5:${windowOf(a.fiveHour.resetsAt)}`, text: `Cuenta ${a.name}: a este ritmo (${five.ratePerHour}%/h) llega a su tope de 5 h hacia las ${fmtWhen(new Date(five.capAt).toISOString(), now, offsetMin)}` })
+      out.push({ id: `${a.name}:cap5:${windowOf(a.fiveHour.resetsAt)}`, text: `Account ${a.name}: at this pace (${five.ratePerHour}%/h) it reaches its 5 h cap around ${fmtWhen(new Date(five.capAt).toISOString(), now, offsetMin)}` })
     }
     const week = a.weeklyForecast
     if (a.health === 'ready' && week?.capAt && week.capAt - now < WEEK_CAP_SOON_MS) {
-      out.push({ id: `${a.name}:capw:${windowOf(a.weekly.resetsAt)}`, text: `Cuenta ${a.name}: a este ritmo llega a su tope semanal ${fmtWhen(new Date(week.capAt).toISOString(), now, offsetMin)}` })
+      out.push({ id: `${a.name}:capw:${windowOf(a.weekly.resetsAt)}`, text: `Account ${a.name}: at this pace it reaches its weekly cap ${fmtWhen(new Date(week.capAt).toISOString(), now, offsetMin)}` })
     }
     const expires = a.loginExpiresAt ? Date.parse(a.loginExpiresAt) : NaN
     if (!Number.isNaN(expires) && expires > now && expires - now < LOGIN_SOON_MS) {
-      out.push({ id: `${a.name}:login:${a.loginExpiresAt}`, text: `Cuenta ${a.name}: el login caduca en ${fmtSpan(expires - now)}. Renuévalo con claude auth login.` })
+      out.push({ id: `${a.name}:login:${a.loginExpiresAt}`, text: `Account ${a.name}: login expires in ${fmtSpan(expires - now)}. Renew it with claude auth login.` })
     }
   }
   return out
 }
 
-/** "ritmo 12%/h → tope ~16:40" or "ritmo 5%/h → ~70% al reinicio"; null when steady or unknown. */
+/** "pace 12%/h → cap ~16:40" or "pace 5%/h → ~70% at reset"; null when steady or unknown. */
 export function forecastText(f: AccountView['fiveHourForecast'], now: number, offsetMin: number): { text: string; isWarning: boolean } | null {
   if (!f || f.ratePerHour < 0.5) return null
-  if (f.capAt) return { text: `ritmo ${f.ratePerHour}%/h → tope ~${fmtWhen(new Date(f.capAt).toISOString(), now, offsetMin)}`, isWarning: true }
-  return { text: `ritmo ${f.ratePerHour}%/h → ~${f.atReset}% al reinicio`, isWarning: false }
+  if (f.capAt) return { text: `pace ${f.ratePerHour}%/h → cap ~${fmtWhen(new Date(f.capAt).toISOString(), now, offsetMin)}`, isWarning: true }
+  return { text: `pace ${f.ratePerHour}%/h → ~${f.atReset}% at reset`, isWarning: false }
 }

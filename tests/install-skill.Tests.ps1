@@ -148,7 +148,7 @@ Describe 'scripts/install-skill.ps1' {
         foreach ($section in '## The hub', '## Claude workers', '## ChatGPT', '## Gemini', '## What no executor does', '## A brief that gets finished') {
             $limits | Should -Match ([regex]::Escape($section))
         }
-        @($table.levels.PSObject.Properties.Name) | Should -Be @('alto', 'medio', 'bajo')
+        @($table.levels.PSObject.Properties.Name) | Should -Be @('high', 'medium', 'low')
         $table.executors.chatgpt.canWrite | Should -BeFalse
         $table.executors.gemini.canWrite | Should -BeFalse
         $table.atCap.never | Should -Match 'Never move a task to another Claude account'

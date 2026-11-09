@@ -158,7 +158,7 @@ describe('core', () => {
     const fleet = buildFleet(parseSnapshot(snapshotText), [], NOW, null)
     expect(statusText(fleet)).toBe('fleet A 44% · B login!')
     const before: FleetView = { ...fleet, hub: null, providers: [], pipeline: null, isRefreshing: false, error: null, accounts: fleet.accounts.map(a => ({ ...a, health: 'ready' as const })) }
-    expect(healthChanges(before, fleet)).toEqual(['Cuenta B: login caducado'])
+    expect(healthChanges(before, fleet)).toEqual(['Account B: login expired'])
     expect(healthChanges(null, fleet)).toEqual([])
   })
 })
@@ -179,7 +179,7 @@ test('the pane draws each account and its sessions, on every surface', async ($,
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /FLEET/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /login caducado/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /login expired/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Bash: npm test/ })).toBeDefined()
     await ui.unmount()
   }
@@ -189,7 +189,7 @@ test('the pane says it is loading before the first build', async ($, on) => {
   on('clock.now', () => ({ value: NOW }))
   on('state.get', () => ({ value: { version: 0 } }))
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /Cargando/ }))?.text).toBe('Cargando…')
+  expect((await ui.find({ type: 'Text', text: /Loading/ }))?.text).toBe('Loading…')
   await ui.unmount()
 })
 
@@ -220,7 +220,7 @@ describe('pipeline', () => {
     on('state.get', () => ({ value: { value: { shape: 'fleet-7', value: view }, version: 1 } }))
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ ...PANE, surface })
-      expect(await ui.find({ type: 'Text', text: /esperando reinicio/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /waiting for reset/ })).toBeDefined()
       expect(await ui.find({ key: 'open-A' })).toBeDefined()
       expect(await ui.find({ key: 'open-B' })).toBeUndefined()
       await ui.unmount()

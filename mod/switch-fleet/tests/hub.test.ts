@@ -20,6 +20,12 @@ import {
   shouldRollover,
   workerStartPrompt,
   isWorkerAccount,
+  isDoneReply,
+  isHandoverReply,
+  DONE_MARK,
+  HANDOVER_MARK,
+  toPriority,
+  PRIORITY_INPUTS,
 } from '../hooks/hub-core'
 import type { WorkerRecord } from '../hooks/hub-core'
 
@@ -182,6 +188,17 @@ describe('limits and hand-over', () => {
     expect(isWorkerAccount('B', 'A')).toBe(true)
   })
 
+  test('the prompts name the marks the replies are read by, and older workers keep their marks', () => {
+    expect(workerStartPrompt('w1', 'B', 'D:/w', 1)).toContain(DONE_MARK)
+    expect(rolloverPrompt(41, 'D:/w', 'w1')).toContain(HANDOVER_MARK)
+    expect(isDoneReply('task done: all green')).toBe(true)
+    expect(isDoneReply('ENCARGO TERMINADO: hecho')).toBe(true)
+    expect(isDoneReply('Not done yet')).toBe(false)
+    expect(isHandoverReply('  HANDOVER READY')).toBe(true)
+    expect(isHandoverReply('RELEVO LISTO')).toBe(true)
+    expect(isHandoverReply('TASK DONE')).toBe(false)
+  })
+
   test('a successor is told to read the hand-over first', () => {
     expect(workerStartPrompt('w1', 'B', 'D:/w', 1)).not.toContain('handover')
     expect(workerStartPrompt('w1', 'B', 'D:/w', 2)).toContain('D:/w/w1.handover.md')
@@ -194,17 +211,30 @@ describe('hub status', () => {
     const text = compactStatus(
       [
         { name: 'B', plan: 'pro', health: 'ready', reason: null, fiveHour: { pct: 30, cap: 100, resetsAt: '2030-01-01T15:00:00Z' }, weekly: { pct: 5, cap: 98, resetsAt: '2030-01-05T09:00:00Z' } },
-        { name: 'C', plan: null, health: 'unknown', reason: 'sin dato', fiveHour: { pct: null, cap: null, resetsAt: null }, weekly: { pct: null, cap: null, resetsAt: null } },
+        { name: 'C', plan: null, health: 'unknown', reason: 'no data', fiveHour: { pct: null, cap: null, resetsAt: null }, weekly: { pct: null, cap: null, resetsAt: null } },
       ],
       [beat({ state: 'working', tool: 'Bash', detail: 'npm test', ctxPct: 41, rollover: 'requested', updatedAt: NOW - 3_000 })],
       () => 'B',
       NOW,
     )
     expect(text.split('\n')).toEqual([
-      'cuenta B (pro): ready · 5h 30%/100 (reinicio 2030-01-01T15:00:00Z) · semana 5%/98 (reinicio 2030-01-05T09:00:00Z)',
-      'cuenta C: unknown (sin dato) · 5h ? · semana ?',
-      'worker w1 · [B] · app · working · Bash: npm test · ctx 41% · relevo requested · hace 3s',
+      'account B (pro): ready · 5h 30%/100 (reset 2030-01-01T15:00:00Z) · week 5%/98 (reset 2030-01-05T09:00:00Z)',
+      'account C: unknown (no data) · 5h ? · week ?',
+      'worker w1 · [B] · app · working · Bash: npm test · ctx 41% · hand-over requested · 3s ago',
     ])
+  })
+})
+
+describe('priorities', () => {
+  test('takes high/medium/low and the stored values, stores the stored value', () => {
+    expect(toPriority('high')).toBe('alta')
+    expect(toPriority('medium')).toBe('media')
+    expect(toPriority('low')).toBe('baja')
+    expect(toPriority('alta')).toBe('alta')
+    expect(toPriority('baja')).toBe('baja')
+    expect(toPriority('urgent')).toBeNull()
+    expect(toPriority('')).toBeNull()
+    expect(PRIORITY_INPUTS).toEqual(['high', 'medium', 'low', 'alta', 'media', 'baja'])
   })
 })
 
@@ -214,7 +244,7 @@ describe('director note', () => {
   test('the first prompt of a hub session asks for the fleet-director skill', () => {
     const note = directorNote(base)!
     expect(note).toContain('fleet-director')
-    expect(note).toContain('cuenta A')
+    expect(note).toContain('account A')
     expect(note).toContain('trivial')
   })
 
