@@ -41,6 +41,8 @@ export type Paths = {
   workers: string
   inbox: string
   defaultConfigDir: string
+  /** Codex's home (CODEX_HOME, else ~/.codex): its sessions carry ChatGPT's rate limits. */
+  codexHome: string
   script: string
 }
 
@@ -57,6 +59,7 @@ export async function pathsOf($: EngineInterface, cfg: Config): Promise<Paths> {
     workers: `${dir}/workers`,
     inbox: `${dir}/inbox`,
     defaultConfigDir: `${home}/.claude`,
+    codexHome: (await $.env.get('CODEX_HOME')) || `${home}/.codex`,
     script: cfg.scriptPath || `${home}/.claude/skills/switch-account/scripts/open-session.ps1`,
   }
 }

@@ -295,6 +295,16 @@ them, spending little) and the other accounts do the work. The hub is the accoun
 Everything stays in local files under `~/.claude-switch/` (`workers/`, `inbox/`, `live/`). Run one
 hub session at a time: two hub sessions could each open the same successor.
 
+### ChatGPT in Fleet
+
+Every Codex session (Codex CLI on your ChatGPT plan) writes its rate limits into its session file
+under `~/.codex/sessions` (or `$CODEX_HOME/sessions`). Fleet reads the newest one and draws a
+**ChatGPT** card beside the accounts: each usage window (5h, 7d or 30d, as the plan has them)
+with the percent used and its reset, the plan name, and how long ago Codex reported it. It needs
+no credentials and makes no request; the numbers are as fresh as your last Codex turn and are
+marked stale after 6 hours. The status line adds `GPT 99%`, and a window at 90 % or at its limit
+is toasted once.
+
 ### Fleet Deck: the pane in the desktop app
 
 In the Claude Code desktop app (and the editor extension) `/fleet` draws the **Deck** instead of

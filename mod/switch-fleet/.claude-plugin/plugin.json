@@ -1,6 +1,6 @@
 {
   "name": "switch-fleet",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Fleet: a live pane of every Claude Code account you own and every session on each, plus a hub mode: a hub account opens workers on your other accounts, which hand over at a context threshold and wait for their own account's reset.",
   "types": "./types/index.d.ts",
   "userConfig": {

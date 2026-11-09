@@ -8,7 +8,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AccountView, Beat, DeckView, FleetView, HubView, Meter, PipelineView, SessionView } from '../types'
+import type { AccountView, Beat, DeckView, FleetView, HubView, Meter, PipelineView, ProviderView, SessionView } from '../types'
 import { alertsFor, buildFleet, parsePipeline, fmtSpan, fmtWhen, forecastText, gauge, healthChanges, maskSecrets, normPath, parseBeat, parseSnapshot, shorten, statusText, toolDetail } from './core'
 import { parseHistory } from './forecast'
 import type { History } from './forecast'
@@ -17,6 +17,7 @@ import type { DeckActions, DeckElements, WorkerDraft } from './deck'
 import { buildWorkers } from './deck-view'
 import { hubTick, hubToolCall, isHub, registerHubTools, setWorkerPriority } from './hub'
 import { parseWorker, WORKER_NAME } from './hub-core'
+import { newestFirst, parseCodexRollout, providerAlerts, providerStatus } from './providers'
 import type { WorkerRecord } from './hub-core'
 import type { HubTool } from './hub'
 import { parseConfig, pathsOf, readUsage, S, setBeat, writeBeat } from './shared'
@@ -29,7 +30,7 @@ const IDLE_BEAT_MS = 60_000
 const REFRESH_TIMEOUT_MS = 180_000
 const LOCK_MS = 4 * 60_000
 
-const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-5' })
+const fleet = atom({ plugin: 'switch-fleet', key: 'fleet' } as const, null, { shape: 'fleet-6' })
 /** The Deck's notes and two-press controls (the desktop pane). */
 const deck = atom({ plugin: 'switch-fleet', key: 'deck' } as const, EMPTY_DECK, { shape: 'deck-2' })
 /** Alerts already shown, kept across sessions so each one is toasted once. */
@@ -76,8 +77,9 @@ async function readHistory($: EngineInterface): Promise<History> {
 }
 
 /** Toasts each warning once across sessions (the ids are kept in $.store). */
-async function raiseAlerts($: EngineInterface, accounts: AccountView[], now: number) {
-  const alerts = alertsFor(accounts, now, new Date(now).getTimezoneOffset())
+async function raiseAlerts($: EngineInterface, accounts: AccountView[], providers: ProviderView[], now: number) {
+  const offset = new Date(now).getTimezoneOffset()
+  const alerts = [...alertsFor(accounts, now, offset), ...providerAlerts(providers, now, iso => fmtWhen(iso, now, offset))]
   if (alerts.length === 0) return
   const stored = await $.store.get(ALERTED_KEY).catch(() => null)
   const seen = Array.isArray(stored) ? stored.filter((x): x is string => typeof x === 'string') : []
@@ -85,6 +87,51 @@ async function raiseAlerts($: EngineInterface, accounts: AccountView[], now: num
   if (fresh.length === 0) return
   await $.store.set(ALERTED_KEY, [...seen, ...fresh.map(a => a.id)].slice(-MAX_ALERTED))
   for (const a of fresh) await $.ui.toast(a.text, { timeoutMs: 10_000 })
+}
+
+/** How often the Codex sessions folder is listed again; between listings the found file is re-read only when it changed. */
+const CODEX_LIST_MS = 60_000
+/** Rollout files tried, newest first, for one with rate limits (a session with no turn has none). */
+const CODEX_TRIES = 6
+const codex: { listedAt: number; files: string[]; path: string | null; mtime: number; view: ProviderView | null } = { listedAt: 0, files: [], path: null, mtime: 0, view: null }
+
+/** The newest rollout files under <codexHome>/sessions/YYYY/MM/DD, newest first. */
+async function listCodexRollouts($: EngineInterface, root: string): Promise<string[]> {
+  const names = async (dir: string) => (await $.fs.list(dir).catch(() => [])).map(f => f.name)
+  const out: string[] = []
+  for (const y of newestFirst(await names(root))) {
+    for (const m of newestFirst(await names(`${root}/${y}`))) {
+      for (const d of newestFirst(await names(`${root}/${y}/${m}`))) {
+        const files = (await names(`${root}/${y}/${m}/${d}`)).filter(n => /^rollout-.*\.jsonl$/.test(n)).sort().reverse()
+        out.push(...files.map(f => `${root}/${y}/${m}/${d}/${f}`))
+        if (out.length >= CODEX_TRIES) return out.slice(0, CODEX_TRIES)
+      }
+    }
+  }
+  return out
+}
+
+/** ChatGPT's rate limits from the newest Codex session that has them; nothing when Codex is not there. */
+async function readCodex($: EngineInterface, now: number): Promise<ProviderView[]> {
+  if (!S.paths) return []
+  if (now - codex.listedAt > CODEX_LIST_MS) {
+    codex.listedAt = now
+    codex.files = await listCodexRollouts($, `${S.paths.codexHome}/sessions`)
+  }
+  for (const path of codex.files) {
+    const stat = await $.fs.stat(path).catch(() => null)
+    if (!stat || stat.kind !== 'file') continue
+    if (path === codex.path && stat.mtimeMs === codex.mtime && codex.view) return [codex.view]
+    const text = await $.fs.read(path).then(String, () => null)
+    const view = text ? parseCodexRollout(text, now) : null
+    if (view) {
+      codex.path = path
+      codex.mtime = stat.mtimeMs
+      codex.view = view
+      return [view]
+    }
+  }
+  return []
 }
 
 async function rebuild($: EngineInterface) {
@@ -112,13 +159,17 @@ async function rebuild($: EngineInterface) {
     cwd: S.beat?.cwd ?? null,
     workers: buildWorkers(workers.records, beats, S.cfg.hubAccount, t, workers.briefs),
   }
-  const view: FleetView = { ...built, hub, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
+  const providers = await readCodex($, t).catch(() => [] as ProviderView[])
+  const view: FleetView = { ...built, providers, hub, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
   // Redraw only when something a reader sees changed (builtAt alone does not count).
   const same = before && JSON.stringify({ ...before, builtAt: 0 }) === JSON.stringify({ ...view, builtAt: 0 })
   if (!same) await update($, fleet, () => view)
   for (const msg of healthChanges(before, built)) await $.ui.toast(msg)
-  await raiseAlerts($, built.accounts, t)
-  if (S.cfg.statusLine) await $.ui.status(statusText(built))
+  await raiseAlerts($, built.accounts, providers, t)
+  if (S.cfg.statusLine) {
+    const line = [statusText(built), ...providerStatus(providers)].filter(Boolean).join(' · ')
+    await $.ui.status(line || undefined)
+  }
   return { accounts: built.accounts, beats }
 }
 
@@ -595,6 +646,24 @@ export const register: Register = (on, options) => {
       )
     }
 
+    const providerBox = (p: ProviderView) => {
+      const inner = W - 4
+      const color = p.health === 'at-cap' ? C.bad : p.isStale ? C.faint : C.info
+      return (
+        <Box key={`prov-${p.id}`} flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} width={W}>
+          <Box justifyContent="space-between" width={inner}>
+            <Text bold wrap="truncate">
+              <Text color={C.info}>{p.name}</Text>
+              <Text color={C.dim}>{`${p.plan ? ` · ${p.plan}` : ''} · vía ${p.source}`}</Text>
+            </Text>
+            <Box flexShrink={0}>{p.health === 'at-cap' ? <Text color={C.bad}>✗ límite</Text> : p.health === 'ready' ? <Text color={C.ok}>● disponible</Text> : <Text color={C.dim}>? sin dato</Text>}</Box>
+          </Box>
+          {p.windows.map(w => meterRow(w.label, { pct: w.pct, cap: null, resetsAt: w.resetsAt, isLive: false }, inner))}
+          <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `leído hace ${fmtSpan(t - p.readAt)} (último uso de ${p.source})` : 'sin fecha de lectura'}</Text>
+        </Box>
+      )
+    }
+
     const card = (a: AccountView, index: number) => {
       const inner = W - 4
       const border = a.health === 'logged-out' ? C.bad : a.health === 'at-cap' ? C.warn : a.health === 'ready' ? C.main : C.faint
@@ -664,6 +733,7 @@ export const register: Register = (on, options) => {
         {view.accounts.length === 0 ? <Text color={C.dim}>Sin cuentas. Pulsa actualizar o ejecuta /fleet refresh.</Text> : null}
         {view.pipeline ? pipelineBox(view.pipeline) : null}
         {view.accounts.map(card)}
+        {(view.providers ?? []).map(providerBox)}
       </Box>
     )
   })
