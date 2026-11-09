@@ -280,6 +280,15 @@ async function usageReport($: EngineInterface): Promise<string> {
   return r.exitCode === 0 ? [fence, out, fence].join('\n') : `El informe falló (${r.exitCode}): ${shorten(out, 300)}`
 }
 
+/** Opens the pane once per load when openOnStart is on and something other than a phone draws. */
+async function openOnStart($: EngineInterface) {
+  if (!S.cfg.openOnStart || S.hasOpenedOnStart) return
+  const surfaces = await $.session.surfaces().catch(() => [] as const)
+  if (!surfaces.some(s => s !== 'mobile')) return
+  S.hasOpenedOnStart = true
+  void openPane($).catch(err => noteError(err))
+}
+
 async function openPane($: EngineInterface) {
   return $.ui.open({ id: PANE, title: TITLE, columns: 64, rows: 12 })
 }
@@ -347,14 +356,14 @@ export const register: Register = (on, options) => {
     await update($, deck, d => ({ ...(d ?? EMPTY_DECK), busy: null, confirmStop: null, confirmAt: null })).catch(err => noteError(err))
     await rebuild($).catch(err => noteError(err))
     void maybeRefresh($, false).catch(err => noteError(err))
-    if (S.cfg.openOnStart && e.isInteractive) {
-      const surface = await $.session.surface()
-      if (surface && surface !== 'mobile') void openPane($)
-    }
+    // Under the REPL the terminal is there at start. The desktop app and the editor run the
+    // session through the SDK and attach later, so those open at the first turn.
+    if (e.isInteractive) await openOnStart($)
     return done
   })
 
   on('turn.start', async ($, e, next) => {
+    if (!e.agentId) await openOnStart($)
     if (!e.agentId) {
       const prompt = e.text.trim() ? shorten(maskSecrets(e.text.replace(/\s+/g, ' ').trim()), 70) : null
       await setBeat($, { state: 'working', tool: null, detail: null, prompt, model: await $.session.model().catch(() => S.beat?.model ?? null) }, true)

@@ -97,6 +97,14 @@ describe('worker phases', () => {
     expect(workerPhase(record({}), beat({}), 'A', NOW)).toBe('working')
   })
 
+  test('a worker that finished and closed its tab reads as finished, with its last answer', () => {
+    const closed = beat({ finished: true, state: 'ended', lastReply: 'ENCARGO TERMINADO: hecho', updatedAt: NOW - 20 * 60_000 })
+    const [w] = buildWorkers([record({ openedAt: NOW - 30 * 60_000 })], [{ ...closed, startedAt: NOW - 25 * 60_000 }], 'A', NOW)
+    expect(w?.phase).toBe('finished')
+    expect(w?.lastReply).toBe('ENCARGO TERMINADO: hecho')
+    expect(w?.since).toBe(NOW - 20 * 60_000)
+  })
+
   test('takes only the current generation, busiest first', () => {
     const old = beat({ sessionId: 'old', startedAt: NOW - 120_000, state: 'idle' })
     const workers = buildWorkers(

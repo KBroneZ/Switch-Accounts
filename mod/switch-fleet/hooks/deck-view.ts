@@ -14,9 +14,17 @@ export function currentBeat(record: WorkerRecord, beats: Beat[], now: number): B
   return mine.sort((a, b) => b.startedAt - a.startedAt)[0] ?? null
 }
 
-export function workerPhase(record: WorkerRecord, beat: Beat | null, hubAccount: string, now: number): WorkerPhase {
+/** The latest heartbeat of the current generation, shown or not (a closed tab's last word). */
+export function lastBeat(record: WorkerRecord, beats: Beat[]): Beat | null {
+  const mine = beats.filter(b => b.worker === record.name && b.startedAt >= record.openedAt)
+  return mine.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+}
+
+export function workerPhase(record: WorkerRecord, beat: Beat | null, hubAccount: string, now: number, last: Beat | null = null): WorkerPhase {
   if (record.state === 'stopped') return 'stopped'
   if (owesSuccessor(record, hubAccount)) return 'successor'
+  // A worker that finished and closed its tab is done, not gone.
+  if (!beat && last?.finished) return 'finished'
   if (!beat) return now - record.openedAt < STARTING_MS ? 'starting' : 'gone'
   if (beat.finished) return 'finished'
   if (beat.waitingUntil) return 'waiting'
@@ -51,7 +59,8 @@ export function buildWorkers(records: WorkerRecord[], beats: Beat[], hubAccount:
   return records
     .map(record => {
       const beat = currentBeat(record, beats, now)
-      const phase = workerPhase(record, beat, hubAccount, now)
+      const last = beat ?? lastBeat(record, beats)
+      const phase = workerPhase(record, beat, hubAccount, now, last)
       const view: WorkerView = {
         name: record.name,
         title: briefTitle(briefs.get(record.name) ?? null),
@@ -62,13 +71,13 @@ export function buildWorkers(records: WorkerRecord[], beats: Beat[], hubAccount:
         effort: record.effort,
         generation: record.generation,
         phase,
-        since: beat ? beat.stateSince : record.openedAt,
+        since: beat ? beat.stateSince : (last?.updatedAt ?? record.openedAt),
         tool: beat?.tool ?? null,
         detail: beat?.detail ?? null,
         ctxPct: beat?.ctxPct ?? null,
         costUsd: beat?.costUsd ?? null,
         waitingUntil: beat?.waitingUntil ?? null,
-        lastReply: beat?.lastReply ?? null,
+        lastReply: last?.lastReply ?? null,
       }
       return view
     })

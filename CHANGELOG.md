@@ -3,6 +3,7 @@
 ## 0.5.0 — unreleased
 
 - Fleet Deck (switch-fleet 0.4.0): in the desktop app and the editor, `/fleet` draws SVG gauges per account (use, pace projection, cap tick), a lane per hub worker (phase, generation, context against the hand-over threshold, last answer) and, in hub sessions, controls to message, stop and open workers through the same checks as the `fleet_*` tools. The terminal keeps the text pane.
+- switch-fleet 0.5.1: `openOnStart` also opens the pane in the desktop app and the editor (they attach after start, so it opens at the first turn); the weekly-reset match allows /usage's rounding to the minute; a worker that finished and closed its tab shows as finished with its last answer.
 - Fleet Deck v2 (switch-fleet 0.5.0), laid out like Flightdeck: title and legend, account cards side by side, a task board of the hub's workers (title from the brief's first line, priority `alta`/`media`/`baja` set at open or from the card, open tasks first) and one sessions box. `fleet_open_worker` takes an optional `priority`.
 - Fleet reads whose quota a session spends from its live limits (the weekly reset, fixed per account): a session of one config dir signed in with another account (the desktop app, say) gives its live use to that account and is marked `cuota de B`, instead of overwriting its config dir's account (switch-fleet 0.4.1).
 

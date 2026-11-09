@@ -175,8 +175,11 @@ function liveLimits(beats: Beat[], since: number): { limits: BeatLimits; at: num
   return best
 }
 
-/** Two reset times this close are the same window. */
-const SAME_RESET_MS = 60_000
+/**
+ * Two weekly reset times this close are the same account's: /usage prints them to the minute and
+ * rounds (00:59 against a session's 01:00), while two accounts' weekly anchors are hours apart.
+ */
+const SAME_RESET_MS = 15 * 60_000
 
 /**
  * The account whose quota a session spends, read from its live limits: the one account of the
