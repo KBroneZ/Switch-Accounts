@@ -237,6 +237,7 @@ describe('quota account', () => {
   test('names the account by its weekly reset, or nothing when unknown or not unique', () => {
     expect(quotaAccountOf(beat({ limits: limits(weekB) }), withB.accounts)).toBe('B')
     expect(quotaAccountOf(beat({ limits: limits('2030-01-05T09:00:00.000Z') }), withB.accounts)).toBe('A')
+    expect(quotaAccountOf(beat({ limits: limits('2030-01-08T01:01:00.000Z') }), withB.accounts)).toBe('B')
     expect(quotaAccountOf(beat({ limits: null }), withB.accounts)).toBeNull()
     expect(quotaAccountOf(beat({ limits: limits('2030-02-01T00:00:00Z') }), withB.accounts)).toBeNull()
     expect(snap.accounts.length).toBe(2)

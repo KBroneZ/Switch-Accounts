@@ -68,6 +68,8 @@ export const S: {
   isDirty: boolean
   isRefreshing: boolean
   hasTimers: boolean
+  /** openOnStart was acted on in this load (at start under the REPL, at the first turn elsewhere). */
+  hasOpenedOnStart: boolean
   lastError: string | null
   history: History
   historyMtime: number
@@ -82,6 +84,7 @@ export const S: {
   isDirty: false,
   isRefreshing: false,
   hasTimers: false,
+  hasOpenedOnStart: false,
   lastError: null,
   history: new Map(),
   historyMtime: -1,
