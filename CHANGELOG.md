@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 — unreleased
+
+- Login state: `Get-AccountAuth` reads `claude auth status --json` (logged in, method, plan, tier, login expiry; nothing else is kept). `Get-ClaudeAccountStatus` reads it first: a logged-out account is reported as such with the command that logs it in again, instead of "no Current session line", and is not asked for `/usage`. `-List` lines add the plan and login expiry.
+- `/usage` answered with the API cost summary (`Total cost:`) now says the account is not logged in with a subscription.
+- Accounts are read side by side.
+- `open-session.ps1 -List` writes `~/.claude-switch/status.json` (`Save-FleetSnapshot`, schema 1) and deletes session heartbeats older than a day.
+- Fleet mod (`mod/switch-fleet`): a Flightdeck-style pane with every account (login, 5-hour and weekly gauges against the caps, resets) and every session on each (folder, model, current tool, context, cost), from local heartbeat files. `/fleet`, `/fleet refresh`, `/fleet close`.
+- Forecast and alerts: `-List` keeps `~/.claude-switch/usage-history.jsonl` (8 days); the Fleet pane shows each window's pace and when it reaches the cap, and toasts (once across sessions) a cap within 45 minutes, a weekly cap within a day and a login that expires within 3 days.
+- Pipeline in the pane: `run-pipeline.ps1` writes `~/.claude-switch/pipeline.json` after each cycle (`-StatusPath`), drawn as a PIPELINE box.
+- Open from the pane: a ready account's card opens a Claude Code tab on it in the session's folder (`1`-`9`), through `open-session.ps1`, so caps and readiness still apply.
+- `Get-UsageReport` and `scripts/usage-report.ps1` (also `/fleet report`): usage per account and day. The skill installer copies the script.
+- This repository is a plugin marketplace (`.claude-plugin/marketplace.json`): `/plugin install switch-fleet --marketplace KBroneZ/Switch-Accounts`.
+- `MOONSHOT.md`: the 12-month plan this release carries out.
+
 ## 0.2.0 — unreleased
 
 - Usage reader: an account with no use in the 5-hour window (CLI 2.1.295 prints no `Current session` line) reads as 0% with no reset time, but only in that exact layout; any other text without the line stays unknown. Its weekly usage stays unknown.

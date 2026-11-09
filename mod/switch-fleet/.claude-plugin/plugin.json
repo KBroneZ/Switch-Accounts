@@ -1,0 +1,36 @@
+{
+  "name": "switch-fleet",
+  "version": "0.2.0",
+  "description": "Fleet: a live pane of every Claude Code account you own (login, 5-hour and weekly usage against your caps, resets) and every session running on each one, from local files only.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "scriptPath": {
+      "title": "open-session.ps1 path",
+      "description": "The switch-account script that reads the accounts (-List). Empty: ~/.claude/skills/switch-account/scripts/open-session.ps1",
+      "type": "string",
+      "default": ""
+    },
+    "refreshMinutes": {
+      "title": "Usage refresh (minutes)",
+      "description": "How old status.json may get before the pane reads every account's usage again (1-60). /usage makes no model request.",
+      "type": "number",
+      "default": 5
+    },
+    "openOnStart": {
+      "title": "Open on start",
+      "description": "Open the Fleet pane when a session starts, where it would sit beside the transcript",
+      "type": "boolean",
+      "default": false
+    },
+    "statusLine": {
+      "title": "Status line",
+      "description": "Show each account's 5-hour usage in the status line",
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "license": "MIT",
+  "author": {
+    "name": "KBroneZ"
+  }
+}

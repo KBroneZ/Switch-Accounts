@@ -83,8 +83,8 @@ Describe 'scripts/open-session.ps1' {
         $run.ExitCode | Should -Be 0
         $lines = @($run.Out -split '\r?\n' | Where-Object { $_ })
         $lines | Should -HaveCount 2
-        $lines[0] | Should -BeLike 'A: 10% of 5 h*below caps, ready'
-        $lines[1] | Should -BeLike 'B: 90% of 5 h*at a cap, ready'
+        $lines[0] | Should -BeLike 'A: 10% of 5 h*below caps, ready*'
+        $lines[1] | Should -BeLike 'B: 90% of 5 h*at a cap, ready*'
     }
 
     It 'lists the accounts as JSON without the display line' {

@@ -64,3 +64,19 @@ paths with forward slashes in the Bash tool, or the backslashes are eaten).
 
 Unknown usage counts as "not available", never as 0%. An account with no activity in the current
 5-hour window can read as unknown: name it explicitly (`-Account B`) to open it anyway.
+
+## Logged-out accounts
+
+`-List` checks each login first (`claude auth status`). A line like
+`B: not logged in (login expired?) ... Log in again: <command>` means that account's login
+expired. Tell the user and give them that command to run themselves in a terminal (it opens a
+browser sign-in). Never run `claude auth login` for them and never pick another account to get
+around it.
+
+## Watching the accounts
+
+`-List` also saves `~/.claude-switch/status.json`. When the user wants to see what every account
+and session is doing ("¿qué hacen mis cuentas?", "panel", "fleet"), point them to the Fleet pane:
+`/fleet` (the `switch-fleet` plugin: `/plugin install switch-fleet --marketplace KBroneZ/Switch-Accounts`),
+`/fleet refresh` to read usage again, `/fleet report` for usage per day. For a usage report
+without the pane: `pwsh -NoProfile -File <skill-dir>/scripts/usage-report.ps1 [-Days n]`.

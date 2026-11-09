@@ -2,6 +2,8 @@
 # Behaviour is driven by files inside $env:CLAUDE_CONFIG_DIR, so each fake
 # account answers differently and the tests can prove which config dir was used:
 #   fake-usage.json           body printed for `-p /usage`
+#   fake-auth.json            body printed for `auth status --json` (default: logged in, synthetic plan)
+#   fake-auth-exit-code.txt   exit code of `auth status` (default 0)
 #   fake-session.jsonl        lines printed for any other prompt; a line "#sleep N" sleeps N seconds
 #   fake-session-action.ps1   script run in the working dir before printing (e.g. make a commit)
 #   fake-exit-code.txt        exit code (default 0)
@@ -14,6 +16,19 @@ $configDir = $env:CLAUDE_CONFIG_DIR
 if (-not $configDir) {
     [Console]::Error.WriteLine('fake-claude: CLAUDE_CONFIG_DIR not set')
     exit 97
+}
+
+if ($args.Count -ge 2 -and $args[0] -eq 'auth' -and $args[1] -eq 'status') {
+    $call = [ordered]@{ args = @($args); cwd = (Get-Location).Path; prompt = 'auth status' }
+    Add-Content -LiteralPath (Join-Path $configDir 'fake-calls.jsonl') -Value ($call | ConvertTo-Json -Compress -Depth 5)
+    $auth = Join-Path $configDir 'fake-auth.json'
+    if (Test-Path -LiteralPath $auth) { [Console]::Out.Write((Get-Content -LiteralPath $auth -Raw)) }
+    else {
+        # Default: logged in with a synthetic subscription (no email or ids, like a redacted answer).
+        [Console]::Out.Write('{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","planTier":"max_5x","loginExpiresAt":"2099-01-01T00:00:00.000Z"}')
+    }
+    $authExit = Join-Path $configDir 'fake-auth-exit-code.txt'
+    exit $(if (Test-Path -LiteralPath $authExit) { [int](Get-Content -LiteralPath $authExit -Raw) } else { 0 })
 }
 
 $printIndex = [Array]::IndexOf([string[]]$args, '-p')
