@@ -3,8 +3,9 @@
 // priority with their controls, the pipeline, and the live sessions. The terminal keeps the text pane.
 import type { Elements } from 'claude-code'
 
-import type { AccountView, DeckView, FleetView, Forecast, Meter, PipelineView, ProviderView, SessionView, WorkerView } from '../types'
+import type { AccountView, DeckView, FleetView, Forecast, Meter, PipelineView, ProviderView, SessionView, TokenPeriods, WorkerView } from '../types'
 import { fmtSpan, fmtWhen, forecastText, shorten } from './core'
+import { fmtTokens, fmtUsd, otherTokenAccounts, sinceText, tokenMarkdown, tokensFooter, tokensOf } from './tokens'
 import { contextSvg, meterSvg, phaseLabel } from './deck-view'
 import { PRIORITIES, PRIORITY_LABEL } from './hub-core'
 
@@ -98,7 +99,7 @@ const RULE = '─'.repeat(160)
 const HALF = '49%'
 
 export function renderDeck(els: DeckElements, view: FleetView | null, deck: DeckView, t: number, act: DeckActions) {
-  const { Box, Text, Button, Input, Select, Svg } = els
+  const { Box, Text, Button, Input, Select, Svg, Markdown } = els
   const offset = new Date(t).getTimezoneOffset()
   const until = (iso: string) => fmtSpan(Date.parse(iso) - t)
   const when = (iso: string) => `${fmtWhen(iso, t, offset)} (${until(iso)})`
@@ -175,6 +176,46 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
     )
   }
 
+  const tokenTable = (key: string, p: TokenPeriods | undefined) => (p ? <Markdown key={key} text={tokenMarkdown(p)} /> : null)
+
+  const tokensCard = () => {
+    const v = view.tokens
+    if (!v) {
+      return (
+        <Box key="tokens" flexDirection="column" borderStyle="round" borderColor={C.faint} paddingX={1}>
+          <Text bold color={SECTION.accounts}>
+            tokens
+          </Text>
+          <Text color={view.tokensNote ? C.warn : C.dim}>{view.tokensNote ?? 'not counted yet (token-ledger.ps1)'}</Text>
+        </Box>
+      )
+    }
+    return (
+      <Box key="tokens" flexDirection="column" borderStyle="round" borderColor={SECTION.accounts} paddingX={1}>
+        <Box justifyContent="space-between" columnGap={1}>
+          <Text bold>
+            <Text color={SECTION.accounts}>tokens</Text>
+            <Text color={C.dim}> · all accounts + ChatGPT</Text>
+          </Text>
+          <Text color={C.dim}>{sinceText(v.since)}</Text>
+        </Box>
+        {tokenTable('tok-total', v.total)}
+        {otherTokenAccounts(v, view).map(a => (
+          <Text key={`tok-${a.name}`} color={C.dim}>
+            {`incl. ${a.name}: all ${fmtTokens(a.periods.all.total)} · ${fmtUsd(a.periods.all)}`}
+          </Text>
+        ))}
+        <Text color={C.faint}>{tokensFooter(v, t)}</Text>
+        {v.unknownModels.length ? <Text color={C.warn}>{`no price: ${v.unknownModels.join(', ')}`}</Text> : null}
+        {[...v.notes, ...(view.tokensNote ? [view.tokensNote] : [])].map(n => (
+          <Text key={`tok-note-${n.slice(0, 40)}`} color={C.warn} wrap="wrap">
+            {n}
+          </Text>
+        ))}
+      </Box>
+    )
+  }
+
   const chip = (a: AccountView) => {
     switch (a.health) {
       case 'ready':
@@ -215,6 +256,7 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
           <Box flexDirection="column">
             {gauge('5h', a.fiveHour, a.fiveHourForecast)}
             {gauge('7d', a.weekly, a.weeklyForecast)}
+            {tokenTable(`tok-${a.name}`, tokensOf(view.tokens, a.name)?.periods)}
             {days !== null && days < 7 ? <Text color={days < 2 ? C.bad : C.warn}>login expires in {fmtSpan(Date.parse(a.loginExpiresAt!) - t)}</Text> : null}
           </Box>
         )}
@@ -259,6 +301,7 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
           ),
         )}
         <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `read ${fmtSpan(t - p.readAt)} ago (${p.readNote})` : 'no read time'}</Text>
+        {tokenTable(`tok-${p.id}`, tokensOf(view.tokens, p.name)?.periods)}
       </Box>
     )
   }
@@ -462,6 +505,7 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
         {view.accounts.map(accountCard)}
         {(view.providers ?? []).map(providerCard)}
       </Box>
+      {tokensCard()}
       {rule('rule-1')}
       {tasksSection()}
       {view.pipeline ? pipeline(view.pipeline) : null}
