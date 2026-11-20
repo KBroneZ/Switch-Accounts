@@ -38,4 +38,10 @@ starts real sessions that spend subscription usage, so confirm with the user fir
 Exit code 3 from `run-pipeline.ps1` means no role could run (cap reached or usage unknown):
 report the printed reason and reset time; do not retry with another account.
 
+Gemini through several Google accounts (aisw profiles, `~/.claude-switch/gemini-accounts.json`) is
+part of the fleet-director skill: `scripts/ask-gemini.ps1 -Account <name|auto>` and
+`scripts/gemini-usage.ps1 -Account <name>`. Same rule as for Claude: an unavailable account (exit
+code 6) or unknown usage stops the call; never swap in another account to get round it. Setup and
+manual aisw commands: `README.md`, "Several Google accounts for Gemini".
+
 Details, limits and how the cap can overshoot: `README.md`.

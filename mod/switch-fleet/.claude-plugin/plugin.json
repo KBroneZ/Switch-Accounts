@@ -1,6 +1,6 @@
 {
   "name": "switch-fleet",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Fleet: a live pane of every Claude Code account you own and every session on each, plus a hub mode: a hub account opens workers on your other accounts, which hand over at a context threshold and wait for their own account's reset.",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -42,7 +42,13 @@
     },
     "agyPath": {
       "title": "Antigravity CLI path",
-      "description": "agy.exe, asked for Gemini's usage (/usage, no model turn) every 10 minutes. Empty: %LOCALAPPDATA%/agy/bin/agy.exe. Not installed: no Gemini card.",
+      "description": "agy.exe, asked for Gemini's usage (/usage) every 10 minutes (with several Google accounts, one account at a time and rarely: see gemini-accounts.json). Empty: %LOCALAPPDATA%/agy/bin/agy.exe. Not installed: no Gemini card.",
+      "type": "string",
+      "default": ""
+    },
+    "geminiScriptPath": {
+      "title": "gemini-usage.ps1 path",
+      "description": "The fleet-director script that reads one Google account's Gemini usage (switching the account with aisw). Used only when ~/.claude-switch/gemini-accounts.json exists. Empty: ~/.claude/skills/fleet-director/scripts/gemini-usage.ps1",
       "type": "string",
       "default": ""
     },

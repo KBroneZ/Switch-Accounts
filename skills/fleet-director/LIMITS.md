@@ -53,6 +53,11 @@ to do". When a fact here and `fleet_status` disagree, `fleet_status` wins (it is
   task: batch small questions into one call. No memory between calls.
 - Web access in this mode is not checked: send web research to ChatGPT.
 - Needs Antigravity's sign-in done by the user.
+- Several Google accounts (`~/.claude-switch/gemini-accounts.json`, aisw profiles): only one is live
+  at a time, so Gemini calls run one after another (a lock; a second call waits up to 2 minutes).
+  `-Account auto` picks the account with the most room; each account has its own weekly limits.
+  Adding an account, signing it in (`aisw add antigravity <profile>`) and trusting it are the
+  user's steps.
 
 ## What no executor does
 

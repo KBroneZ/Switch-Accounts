@@ -307,7 +307,7 @@ is toasted once.
 
 ### Gemini in Fleet
 
-With Antigravity's CLI installed (`agy`, at `%LOCALAPPDATA%gyingy.exe`, or set `agyPath`)
+With Antigravity's CLI installed (`agy`, at `%LOCALAPPDATA%\agy\bin\agy.exe`, or set `agyPath`)
 and signed in, Fleet draws a **Gemini** card: Antigravity's weekly limit for each group of models
 (`Gemini 7d` for Gemini Flash and Pro, `Claude/GPT 7d` for Claude Opus, Sonnet and GPT-OSS), with
 the percent used and the reset. It works on any Google AI plan Antigravity accepts (Plus included);
@@ -319,6 +319,74 @@ json`, a slash command that makes no model turn and spends nothing. One session 
 `~/.claude-switch/gemini-usage.json`; agy's log goes to `agy-usage.log` there, overwritten each run.
 A failed run keeps the last answer and writes why to `gemini-error.txt`, which every session shows
 on the card; no session asks again for 10 minutes.
+
+With several Google accounts (below) there is one card and one reading per account, and the 10-minute rule becomes "at most one account per check, and only when due".
+
+### Several Google accounts for Gemini
+
+`agy` keeps one Google sign-in per Windows user (in the Windows Credential Manager), so a second
+account cannot sit in a second profile folder. [aisw](https://github.com/burakdede/aisw) (MIT)
+stores each sign-in as a profile and makes one of them the live one; Switch-Accounts uses it to
+pick the account with the most room for each Gemini call, like it does for the Claude accounts.
+Only one account is live at a time, so Gemini calls run one after another.
+
+**Set up (once, by you).** Install aisw (`aisw.exe` in `~/.aisw/bin`, on `PATH`, or named in
+`aiswPath`), sign each Google account in to `agy` and save it: `aisw add antigravity g1`, sign the
+second account in and `aisw add antigravity g2`. Then declare them in `~/.claude-switch/gemini-accounts.json`:
+
+```json
+{
+  "defaultAccount": "G1",
+  "accounts": [
+    { "name": "G1", "profile": "g1", "label": "main" },
+    { "name": "G2", "profile": "g2", "label": "second" }
+  ]
+}
+```
+
+`name` is what Fleet and `-Account` call it, `profile` the aisw profile, `label` a note for the card;
+`defaultAccount` (default: the first) is the account left live afterwards, so your own `agy`
+stays predictable. Without the file nothing changes: one account, whatever `agy` has live.
+
+**What runs.** `ask-gemini.ps1 -Account <name|auto>` (default `auto` once the file exists) and
+`gemini-usage.ps1` take `gemini.lock` (an open file handle: the system frees it if the process dies),
+run `aisw use antigravity <profile>`, check with `aisw status` that the profile is live, run `agy`, and
+put the default account back. A missing aisw, a missing profile or a switch that does not check out
+makes that account unavailable: the call stops with exit code 6 and a clear message. It is never
+swapped for another account, and nothing retries on another one.
+`auto` takes the account with the most room in the windows of the model's group (`Gemini` for
+`gemini-*`, `Claude/GPT` for the others). Unknown usage never counts as 0 %: an account with no
+reading, an old one (over 6 hours) or a window that has reset is read first; one that cannot be read
+is skipped out loud; if none has room, the call stops (exit 3) and names the resets.
+
+**Usage, cheaply.** One file per account (`gemini-usage-<name>.json`, `gemini-error-<name>.txt`).
+`/usage` can run as a model turn when the CLI is not ready (seen once: ~13 K tokens), so it is not
+polled. `ask-gemini.ps1` reads the account it used right after the call (`-NoUsageRefresh` skips
+that), and Fleet reads at most **one account per 10-minute check**, only when it has never been read, a
+window of its last reading has reset, or the reading is 3 hours old; a failed read waits 30 minutes.
+Fleet shows one card per account (`Gemini G1 (main)`, its windows and resets; `no data` until read) and
+`fleet_status` one line each; the status line shows `Gemini G1 7%`.
+
+**By hand.**
+
+```powershell
+$env:Path = "$env:LOCALAPPDATA/agy/bin;$env:Path"          # aisw needs agy on PATH
+& "$HOME\.aisw\bin\aisw.exe" list antigravity              # profiles, and which one is live
+& "$HOME\.aisw\bin\aisw.exe" use antigravity g2            # make g2 live (a running agy keeps its account)
+& "$HOME\.aisw\bin\aisw.exe" status --tool antigravity     # check
+pwsh -NoProfile -File ~/.claude/skills/fleet-director/scripts/gemini-usage.ps1 -Account G2   # read one account's usage
+pwsh -NoProfile -File ~/.claude/skills/fleet-director/scripts/ask-gemini.ps1 -Prompt "..." -Out answer.md -Account auto
+```
+
+After a manual `aisw use` leave `g1` live (`aisw use antigravity g1`): the scripts always put the default
+back, but they do not know what you left. Every `aisw use` makes a backup (aisw keeps 10), so frequent
+switching pushes the oldest backup out.
+
+**The `unsandboxed(*)` warning.** `agy` prints, at start, that `~/.gemini/antigravity-cli/settings.json`
+has an invalid permission rule `unsandboxed(*)` (it is ignored and grants nothing). Nothing in this
+repository writes that file, and aisw does not either; the rule is one of agy's own default deny
+rules from an older version, and the new CLI warns about it. It is harmless; to silence it, remove that
+one line from `permissions.deny` in the file yourself.
 
 ### Fleet Deck: the pane in the desktop app
 

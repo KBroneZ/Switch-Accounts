@@ -92,6 +92,22 @@ const agyOutput = (gemini: number, thirdParty: number, reset = '2030-01-15T20:26
 describe('antigravity usage', () => {
   const READ_AT = NOW - 60_000
 
+  test('a window that has not started (reset printed as 1970) is known, with no reset, and a 5h window is named', () => {
+    const text = JSON.stringify({
+      status: 'SUCCESS',
+      command: { name: 'usage', data: { groups: [{ name: 'Claude and GPT models', buckets: [
+        { window: 'weekly', remaining_fraction: 1, reset_time: '1970-01-01T00:00:00Z' },
+        { window: '5h', remaining_fraction: 0.9, reset_time: '1970-01-01T00:00:00Z' },
+      ] }] } },
+    })
+    const p = parseAgyUsage(text, NOW, READ_AT)!
+    expect(p.windows).toEqual([
+      { label: 'Claude/GPT 7d', windowMinutes: 10080, pct: 0, resetsAt: null },
+      { label: 'Claude/GPT 5h', windowMinutes: 300, pct: 10, resetsAt: null },
+    ])
+    expect(p.health).toBe('ready')
+  })
+
   test('reads both weekly groups as used percent', () => {
     const p = parseAgyUsage(agyOutput(1, 0.25), NOW, READ_AT)!
     expect(p.id).toBe('gemini')
