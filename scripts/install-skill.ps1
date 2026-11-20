@@ -2,7 +2,8 @@
 .SYNOPSIS
     Installs the switch-account and fleet-director skills into a Claude Code config dir (default ~/.claude).
 .DESCRIPTION
-    switch-account: skills/switch-account/SKILL.md, scripts/open-session.ps1, scripts/usage-report.ps1
+    switch-account: skills/switch-account/SKILL.md, scripts/open-session.ps1, scripts/usage-report.ps1,
+    scripts/token-ledger.ps1
     and the module (src/), so the skill carries what it runs. fleet-director: SKILL.md, LIMITS.md,
     director.default.json and scripts/ask-gemini.ps1, gemini-usage.ps1 and gemini-accounts.ps1 from skills/fleet-director.
     A skill that is already there is moved to <ConfigDir>/backups/<skill>-<timestamp> first
@@ -28,6 +29,7 @@ $skillPayloads = [ordered]@{
         'SKILL.md'                 = Join-Path $repo 'skills' 'switch-account' 'SKILL.md'
         'scripts/open-session.ps1' = Join-Path $repo 'scripts' 'open-session.ps1'
         'scripts/usage-report.ps1' = Join-Path $repo 'scripts' 'usage-report.ps1'
+        'scripts/token-ledger.ps1' = Join-Path $repo 'scripts' 'token-ledger.ps1'
         'src'                      = Join-Path $repo 'src'
     }
     'fleet-director' = [ordered]@{

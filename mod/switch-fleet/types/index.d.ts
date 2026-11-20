@@ -199,9 +199,46 @@ export type ProviderView = {
   health: 'ready' | 'at-cap' | 'unknown'
 }
 
+/** Tokens of one period, by kind, and what they would cost at API prices. */
+export type TokenCounts = {
+  input: number
+  output: number
+  /** 5-minute and 1-hour cache writes. */
+  cacheWrite: number
+  cacheRead: number
+  total: number
+  /** The cost of the priced tokens; see unpricedTokens for the rest. */
+  usd: number | null
+  /** Tokens of models with no price in the table: their cost is unknown, never $0. */
+  unpricedTokens: number
+}
+
+export type TokenPeriods = { today: TokenCounts; week: TokenCounts; month: TokenCounts; all: TokenCounts }
+
+/** A transcript source tokens.json counts: a Claude config dir by account, or Codex. */
+export type TokenSource = { account: string; kind: 'claude' | 'codex' }
+
+/** ~/.claude-switch/tokens.json summed for the pane (token-ledger.ps1 writes it). */
+export type TokensView = {
+  updatedAt: string | null
+  /** False until the first count has read every transcript. */
+  isComplete: boolean
+  notes: string[]
+  byAccount: { name: string; kind: TokenSource['kind']; periods: TokenPeriods; since: string | null }[]
+  /** Every account, other config dirs and ChatGPT together. */
+  total: TokenPeriods
+  /** The first local day counted. */
+  since: string | null
+  unknownModels: string[]
+}
+
 export type FleetView = {
   accounts: AccountView[]
   providers: ProviderView[]
+  /** Token counts, when token-ledger.ps1 has written them. */
+  tokens?: TokensView | null
+  /** Why tokens are missing or late: the count failed, or the first one is still running. */
+  tokensNote?: string | null
   hub: HubView | null
   pipeline: PipelineView | null
   snapshotAt: string | null
