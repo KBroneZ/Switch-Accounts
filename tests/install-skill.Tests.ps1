@@ -32,7 +32,7 @@ Describe 'scripts/install-skill.ps1' {
         Get-Content -LiteralPath (Join-Path $target 'SKILL.md') -Raw | Should -Be (Get-Content -LiteralPath (Join-Path $repo 'skills' 'fleet-director' 'SKILL.md') -Raw)
         $table = Get-Content -LiteralPath (Join-Path $target 'director.default.json') -Raw | ConvertFrom-Json
         $table.schema | Should -Be 1
-        foreach ($name in 'ask-gemini.ps1', 'gemini-usage.ps1', 'gemini-accounts.ps1') {
+        foreach ($name in 'ask-gemini.ps1', 'gemini-usage.ps1', 'gemini-accounts.ps1', 'ask-qwen.ps1') {
             Test-Path -LiteralPath (Join-Path $target 'scripts' $name) | Should -BeTrue
         }
         Test-Path -LiteralPath (Join-Path $target 'LIMITS.md') | Should -BeTrue
@@ -147,12 +147,14 @@ Describe 'scripts/install-skill.ps1' {
         $skill | Should -Match 'scripts/ask-gemini.ps1'
         $skill | Should -Match 'LIMITS.md'
         $limits = Get-Content -LiteralPath (Join-Path $repo 'skills' 'fleet-director' 'LIMITS.md') -Raw
-        foreach ($section in '## The hub', '## Claude workers', '## ChatGPT', '## Gemini', '## What no executor does', '## A brief that gets finished') {
+        foreach ($section in '## The hub', '## Claude workers', '## ChatGPT', '## Gemini', '## Qwen', '## What no executor does', '## A brief that gets finished') {
             $limits | Should -Match ([regex]::Escape($section))
         }
         @($table.levels.PSObject.Properties.Name) | Should -Be @('high', 'medium', 'low')
         $table.executors.chatgpt.canWrite | Should -BeFalse
         $table.executors.gemini.canWrite | Should -BeFalse
+        $table.executors.qwen.canWrite | Should -BeFalse
+        $table.executors.qwen.provider | Should -Be 'alibaba'
         $table.atCap.never | Should -Match 'Never move a task to another Claude account'
         $skill | Should -Match 'every other option with `"provider": "anthropic"` is skipped too'
         $table.executors.'claude-hub'.provider | Should -Be 'anthropic'
