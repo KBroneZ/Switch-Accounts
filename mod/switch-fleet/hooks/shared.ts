@@ -17,6 +17,8 @@ export type Config = {
   hubAccount: string
   /** Antigravity's CLI, asked for Gemini's usage. Empty: %LOCALAPPDATA%/agy/bin/agy.exe. */
   agyPath: string
+  /** gemini-usage.ps1, which reads one Google account's usage. Empty: ~/.claude/skills/fleet-director/scripts/gemini-usage.ps1. */
+  geminiScriptPath: string
   /** The first prompt of a hub session carries a note to use the fleet-director skill. */
   director: boolean
 }
@@ -33,6 +35,7 @@ export function parseConfig(options: Record<string, unknown>): Config {
     rolloverPercent: Math.min(90, Math.max(10, rollover)),
     hubAccount: hub,
     agyPath: typeof options.agyPath === 'string' ? options.agyPath.trim() : '',
+    geminiScriptPath: typeof options.geminiScriptPath === 'string' ? options.geminiScriptPath.trim() : '',
     director: options.director !== false,
   }
 }
@@ -51,6 +54,10 @@ export type Paths = {
   codexHome: string
   /** Antigravity's last `/usage` answer (its JSON), the lock one session takes to ask, the last failure, and the CLI's log. */
   gemini: string
+  /** The Google accounts (aisw profiles) Gemini is used with; absent: one account, whatever agy has live. */
+  geminiAccounts: string
+  /** gemini-usage.ps1: reads one account's usage under the account lock. */
+  geminiScript: string
   geminiLock: string
   geminiError: string
   agyLog: string
@@ -73,6 +80,8 @@ export async function pathsOf($: EngineInterface, cfg: Config): Promise<Paths> {
     defaultConfigDir: `${home}/.claude`,
     codexHome: (await $.env.get('CODEX_HOME')) || `${home}/.codex`,
     gemini: `${dir}/gemini-usage.json`,
+    geminiAccounts: `${dir}/gemini-accounts.json`,
+    geminiScript: cfg.geminiScriptPath || `${home}/.claude/skills/fleet-director/scripts/gemini-usage.ps1`,
     geminiLock: `${dir}/gemini.lock`,
     geminiError: `${dir}/gemini-error.txt`,
     agyLog: `${dir}/agy-usage.log`,

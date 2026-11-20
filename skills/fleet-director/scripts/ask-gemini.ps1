@@ -9,8 +9,18 @@
     The answer goes to -Out with a header marking it unverified (status: UNVERIFIED). Uses the user's own Antigravity
     sign-in and Google AI plan quota.
 
+    Several Google accounts: with ~/.claude-switch/gemini-accounts.json, -Account <name|auto> picks the
+    Google account (an aisw profile) the call uses; the default is auto, the account with the most room
+    for the model in its usage windows (unknown usage never counts as 0 %: an account whose usage is
+    unknown or old is read first). Under gemini.lock the script switches with `aisw use antigravity
+    <profile>`, checks the switch, runs agy, reads that account's usage again and puts the default
+    account back. An account that is unavailable (aisw or its profile missing, a switch that does not
+    check out) stops the call; it is never replaced by another account. Without the file, agy runs with
+    whatever account is live and -Account is refused.
+
     Exit codes: 0 saved, 1 bad arguments, 2 blocked (a secret-looking prompt or folder),
-    3 agy failed, timed out or answered with an error, 5 agy not found.
+    3 agy failed, timed out or answered with an error (or no account has room left),
+    4 another Gemini run holds the lock, 5 agy not found, 6 the Google account is unavailable.
 .EXAMPLE
     pwsh -NoProfile -File ask-gemini.ps1 -Prompt "Resume estos logs" -Out answers/logs.md -Directory C:/repo/logs
 .EXAMPLE
@@ -27,9 +37,19 @@ param(
     # The folder Gemini may read. Empty: none (an empty scratch folder).
     [string] $Directory,
     [int] $TimeoutSeconds = 900,
-    [string] $AgyPath
+    [string] $AgyPath,
+    # A Google account of gemini-accounts.json, or auto (default there): the account with the most room.
+    [string] $Account,
+    [string] $AiswPath,
+    [string] $ConfigPath,
+    [string] $DataDir,
+    # How long to wait for another Gemini run to release the account lock.
+    [int] $LockWaitSeconds = 120,
+    # Skip reading the account's usage again after the call (it is one /usage call).
+    [switch] $NoUsageRefresh
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'gemini-accounts.ps1')
 
 # Above this the prompt goes to a file the model reads (Windows caps a command line near 32 K).
 $InlineLimit = 20000
@@ -86,6 +106,12 @@ if ($Model -notmatch '^[a-z0-9][a-z0-9.\-]{0,59}$') { Stop-With 1 "Invalid model
 if ($Effort -and $Effort -notin 'low', 'medium', 'high', 'max') { Stop-With 1 "Invalid effort: $Effort (low, medium, high or max)." }
 if ($TimeoutSeconds -lt 30 -or $TimeoutSeconds -gt 7200) { Stop-With 1 'TimeoutSeconds goes from 30 to 7200.' }
 if ($Directory -and -not (Test-Path -LiteralPath $Directory -PathType Container)) { Stop-With 1 "Folder not found: $Directory" }
+if ($Account -and $Account -ne 'auto' -and $Account -notmatch $script:GeminiNamePattern) { Stop-With 1 "Invalid account: $Account (a name of gemini-accounts.json, or auto)." }
+if (-not $DataDir) { $DataDir = Get-GeminiDataDir }
+try {
+    $config = Get-GeminiAccountConfig -Path $(if ($ConfigPath) { $ConfigPath } else { Join-Path $DataDir 'gemini-accounts.json' })
+} catch { Stop-With (Get-GeminiExitCode $_) $_.Exception.Message }
+if (-not $config -and $Account) { Stop-With 1 "-Account needs ~/.claude-switch/gemini-accounts.json (the Google accounts); there is none." }
 
 if ($PromptFile) {
     if (-not (Test-Path -LiteralPath $PromptFile -PathType Leaf)) { Stop-With 1 "File not found: $PromptFile" }
@@ -104,6 +130,59 @@ if (-not $AgyPath) {
     $AgyPath = Join-Path $local 'agy' 'bin' 'agy.exe'
 }
 if (-not (Test-Path -LiteralPath $AgyPath -PathType Leaf)) { Stop-With 5 "agy not found at $AgyPath. Install Antigravity CLI or pass -AgyPath." }
+
+# Several Google accounts: the account, chosen and made live under the lock (released in the last finally).
+$lock = $null
+$aisw = $null
+$agyDir = Split-Path -Parent ([IO.Path]::GetFullPath($AgyPath))
+$chosen = $null
+$hasRunAgy = $false
+if ($config) {
+    $aisw = Find-Aisw -Override $AiswPath -Config $config
+    if (-not $aisw) { Stop-With 6 'Google accounts are unavailable: aisw was not found (put it on PATH, in ~/.aisw/bin, or set aiswPath in gemini-accounts.json).' }
+    try {
+        $lock = Enter-GeminiLock -Path (Join-Path $DataDir 'gemini.lock') -WaitSeconds $LockWaitSeconds
+        if (-not $Account -or $Account -eq 'auto') {
+            $readings = foreach ($candidate in $config.Accounts) {
+                $reading = Read-GeminiUsage -DataDir $DataDir -Account $candidate -Model $Model
+                $isOld = $reading.ReadAt -and ([DateTimeOffset]::UtcNow - $reading.ReadAt).TotalHours -gt $script:GeminiAutoMaxAgeHours
+                if ($null -eq $reading.Room -or $isOld) {
+                    # Unknown or old: read it now (one /usage call), never guess.
+                    try {
+                        Switch-GeminiAccount -Account $candidate -Aisw $aisw -AgyDir $agyDir
+                        [void](Update-GeminiUsage -Account $candidate -AgyPath $AgyPath -DataDir $DataDir)
+                        $reading = Read-GeminiUsage -DataDir $DataDir -Account $candidate -Model $Model
+                    } catch {
+                        $reading = [pscustomobject]@{ Account = $candidate; Room = $null; ReadAt = $null; ResetsAt = $null; Why = $_.Exception.Message }
+                    }
+                }
+                $reading
+            }
+            $readings = @($readings)
+            $pick = Select-GeminiAccount -Readings $readings
+            foreach ($r in $readings | Where-Object { $null -eq $_.Room -or $_.Room -le 0 }) {
+                [Console]::Error.WriteLine("Skipped Google account $($r.Account.Name): $(if ($null -eq $r.Room) { "usage unknown ($($r.Why))" } else { 'no room left' })")
+            }
+            if (-not $pick) {
+                $resets = @($readings | Where-Object { $_.ResetsAt } | ForEach-Object { "$($_.Account.Name) resets $($_.ResetsAt.ToString('u'))" })
+                Stop-GeminiAccount 3 "No Google account has known room for $Model.$(if ($resets) { ' ' + ($resets -join '; ') + '.' }) Pass -Account <name> to use one anyway."
+            }
+            $chosen = $pick.Account
+        } else {
+            $chosen = Resolve-GeminiAccount -Config $config -Name $Account
+        }
+        Switch-GeminiAccount -Account $chosen -Aisw $aisw -AgyDir $agyDir
+    } catch {
+        # Whatever failed after the lock was taken, the default account goes back before the script stops.
+        # Without the lock (another run holds it) nothing was switched, and nothing is touched.
+        if ($lock) {
+            $warning = Restore-GeminiDefaultAccount -Config $config -Aisw $aisw -AgyDir $agyDir
+            if ($warning) { [Console]::Error.WriteLine($warning) }
+            Exit-GeminiLock $lock
+        }
+        Stop-With (Get-GeminiExitCode $_) $_.Exception.Message
+    }
+}
 
 $work = Join-Path ([IO.Path]::GetTempPath()) "ask-gemini-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 $workspace = Join-Path $work 'workspace'
@@ -131,6 +210,7 @@ try {
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
     $info.RedirectStandardInput = $true
+    $hasRunAgy = $true
     $process = [System.Diagnostics.Process]::Start($info)
     $process.StandardInput.Close()
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
@@ -163,10 +243,21 @@ try {
         'status: UNVERIFIED'
         '---'
         ''
-    ) -join "`n"
+    )
+    if ($chosen) { $header = $header[0..1] + "account: $($chosen.Name)" + $header[2..($header.Count - 1)] }
+    $header = $header -join "`n"
     Set-Content -LiteralPath $Out -Value ($header + $answer.response) -Encoding utf8NoBOM
-    Write-Output "Saved: $Out ($Model; tokens: $($answer.usage.total_tokens))"
+    Write-Output "Saved: $Out ($Model$(if ($chosen) { "; account: $($chosen.Name)" }); tokens: $($answer.usage.total_tokens))"
     exit 0
 } finally {
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($lock) {
+        try {
+            # The call changed this account's numbers: read them again while its account is still live.
+            if ($hasRunAgy -and -not $NoUsageRefresh) { [void](Update-GeminiUsage -Account $chosen -AgyPath $AgyPath -DataDir $DataDir) }
+        } catch { [Console]::Error.WriteLine("Could not read the usage of $($chosen.Name) again: $($_.Exception.Message)") }
+        $warning = Restore-GeminiDefaultAccount -Config $config -Aisw $aisw -AgyDir $agyDir
+        if ($warning) { [Console]::Error.WriteLine($warning) }
+        Exit-GeminiLock $lock
+    }
 }

@@ -32,7 +32,9 @@ Describe 'scripts/install-skill.ps1' {
         Get-Content -LiteralPath (Join-Path $target 'SKILL.md') -Raw | Should -Be (Get-Content -LiteralPath (Join-Path $repo 'skills' 'fleet-director' 'SKILL.md') -Raw)
         $table = Get-Content -LiteralPath (Join-Path $target 'director.default.json') -Raw | ConvertFrom-Json
         $table.schema | Should -Be 1
-        Test-Path -LiteralPath (Join-Path $target 'scripts' 'ask-gemini.ps1') | Should -BeTrue
+        foreach ($name in 'ask-gemini.ps1', 'gemini-usage.ps1', 'gemini-accounts.ps1') {
+            Test-Path -LiteralPath (Join-Path $target 'scripts' $name) | Should -BeTrue
+        }
         Test-Path -LiteralPath (Join-Path $target 'LIMITS.md') | Should -BeTrue
     }
 

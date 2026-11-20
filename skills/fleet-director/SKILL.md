@@ -29,7 +29,9 @@ first plan, and plan within it: never ask an executor for something it lists as 
 
 1. **Look at the fleet.** Call `fleet_status` (the `switch-fleet` tool, hub sessions only). It lists
    every Claude account (plan, health, 5-hour and weekly use against caps, resets), live sessions and
-   workers, and the other subscriptions (ChatGPT, Gemini) with their windows and resets. If the tool
+   workers, and the other subscriptions with their windows and resets: ChatGPT, and Gemini with one
+   line per Google account (`Gemini G1`, `Gemini G2`: each its own windows; read each line, the
+   accounts are separate quotas). If the tool
    is not there, run `pwsh -NoProfile -File ~/.claude/skills/switch-account/scripts/open-session.ps1 -List`
    and treat ChatGPT and Gemini as unknown.
 2. **Split the request into tasks.** For each: a short title, its type, level (`high`/`medium`/`low`),
@@ -43,7 +45,10 @@ first plan, and plan within it: never ask an executor for something it lists as 
    Skip an option when:
    - it must write to the repository and the executor has `canWrite: false` (ChatGPT and Gemini are
      read-only for now);
-   - its account or window is at a cap or its use is unknown (unknown never counts as 0 %);
+   - its account or window is at a cap or its use is unknown (unknown never counts as 0 %). For
+     Gemini the options are the Google accounts: it is at a cap only when every Google account is,
+     for that model's group of windows (`Gemini 7d` for Gemini models, `Claude/GPT 7d` for Claude and
+     GPT-OSS ones). One account with room is enough: `ask-gemini.ps1` picks it;
    - it is a Claude worker on the hub account (workers go to the other accounts only).
 
    **The Claude account is chosen once, before any cap is looked at**: the hub's account for
@@ -73,8 +78,15 @@ first plan, and plan within it: never ask an executor for something it lists as 
      `--effort`), in the background. Without that skill: tell the user ChatGPT is not set up.
    - `gemini`: `pwsh -NoProfile -File <skill-dir>/scripts/ask-gemini.ps1 -Prompt "<task>" -Out <file>
      -Model <id> -Effort <e> -Directory <project>` (or `-PromptFile`), in the background. It runs
-     read-only: Gemini can read the project folder but not change it. Exit codes: 0 saved,
-     1 bad arguments, 2 blocked (looks like a secret), 3 agy failed, 5 agy not installed.
+     read-only: Gemini can read the project folder but not change it. Leave `-Account` out (it
+     is `auto`: the Google account with the most room for the model, read from the usage files;
+     an unknown usage is read first, never counted as 0 %). Use `-Account <name>` only when the
+     user or the plan names a Google account, and never to get round a limit: an unavailable
+     account stops the call (exit 6), it is not swapped for another one. The answer header and the
+     `Saved:` line say which account answered. Exit codes: 0 saved, 1 bad arguments, 2 blocked
+     (looks like a secret), 3 agy failed or no account has room, 4 another Gemini run holds the
+     account lock (it waits 2 minutes first; try later), 5 agy not installed, 6 the Google account
+     is unavailable (tell the user: aisw or its profile is missing).
 6. **Follow up.** As results land: read each answer file (marked unverified: `status: UNVERIFIED` from
    Gemini, `estado: SIN VERIFICAR` from ask-chatgpt), verify its claims before using them, and mark
    it verified or partial. Check workers with

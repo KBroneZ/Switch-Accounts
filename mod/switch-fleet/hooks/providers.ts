@@ -63,7 +63,9 @@ export function parseCodexRollout(text: string, now: number): ProviderView | nul
 // without a model turn (no tokens) and lists groups of models, each with its own weekly bucket.
 // It is a request to Google with the CLI's own sign-in; register.tsx runs it every few minutes.
 
-const BUCKET_MINUTES: Record<string, number> = { hourly: 60, daily: 1440, weekly: 10080, monthly: 43200 }
+const BUCKET_MINUTES: Record<string, number> = { '5h': 300, hourly: 60, daily: 1440, weekly: 10080, monthly: 43200 }
+/** Antigravity prints 1970-01-01 as the reset of a window that has not started (nothing used yet). */
+const UNSET_RESET_BEFORE = Date.UTC(2000, 0, 1)
 
 /** A group's short name: `Gemini Models` → Gemini, `Claude and GPT models` → Claude/GPT. */
 export function groupLabel(name: string): string {
@@ -80,7 +82,8 @@ function bucketOf(group: string, v: unknown, now: number): ProviderWindow | null
   const left = num(v.remaining_fraction)
   if (left === null) return null
   const minutes = typeof v.window === 'string' ? (BUCKET_MINUTES[v.window] ?? null) : null
-  const reset = typeof v.reset_time === 'string' ? Date.parse(v.reset_time) : NaN
+  const parsed = typeof v.reset_time === 'string' ? Date.parse(v.reset_time) : NaN
+  const reset = parsed < UNSET_RESET_BEFORE ? NaN : parsed
   const isPast = !Number.isNaN(reset) && reset <= now
   const pct = Math.round(Math.max(0, Math.min(1, 1 - left)) * 1000) / 10
   return {
@@ -148,7 +151,8 @@ export function providerLines(providers: ProviderView[], now: number): string[] 
 export function providerStatus(providers: ProviderView[]): string[] {
   return providers.map(p => {
     const top = p.windows.filter(w => w.pct !== null).sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))[0]
-    const short = p.id === 'chatgpt' ? 'GPT' : p.name
+    // One Gemini per Google account: `Gemini G2 20%`; the label stays out of the status line.
+    const short = p.id === 'chatgpt' ? 'GPT' : p.id.startsWith('gemini-') ? `Gemini ${p.id.slice(7)}` : p.name
     return top ? `${short} ${Math.round(top.pct!)}%${p.health === 'at-cap' ? ' cap' : ''}` : `${short} ?`
   })
 }
