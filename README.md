@@ -388,6 +388,39 @@ repository writes that file, and aisw does not either; the rule is one of agy's 
 rules from an older version, and the new CLI warns about it. It is harmless; to silence it, remove that
 one line from `permissions.deny` in the file yourself.
 
+### Qwen as a read-only executor (`ask-qwen.ps1`)
+
+Qwen (Alibaba) is one more read-only executor for the director: a second opinion, a long-log reader.
+Its answer is unverified data. It is called through **Alibaba Cloud Model Studio's OpenAI-compatible
+API** (international endpoint, Singapore): one HTTPS call with no tools, so it cannot write files or
+run commands. Qwen Code's free OAuth tier was discontinued on 2026-04-15, so there is no free CLI route.
+
+**Your data goes to Alibaba Cloud servers (Singapore by default), outside the EU and the US.** Send
+nothing you would not send to a third-party cloud. Alibaba's docs say API input and output are not
+used to train models; read its current terms yourself (account holders must be adults; check the
+service terms for commercial use of outputs) before sending anything that matters.
+
+What you do (the script never creates an account or touches a key):
+
+1. Create an Alibaba Cloud account and activate Model Studio (international site), then create an
+   API key there. Turn on its "free quota only" option if you want it to stop at the free tokens.
+2. Set the key as a Windows **user** environment variable, once, in a normal PowerShell:
+   `[Environment]::SetEnvironmentVariable('DASHSCOPE_API_KEY', '<your key>', 'User')`. Open a new terminal.
+3. Test: `pwsh -NoProfile -File ~/.claude/skills/fleet-director/scripts/ask-qwen.ps1 -Prompt "Say hello in one line." -Out $env:TEMP/qwen.md`
+   (exit 5 means the variable is not visible; 3 with HTTP 401/403 a bad key or no quota).
+
+What the script does before it sends anything: refuses a prompt or file text that matches a secret
+pattern, a folder with `.env`/key/credential files, and anything under a private path. Private paths
+go in `~/.claude-switch/qwen-private.json`: `{"privatePaths": ["hub", "C:/work/employer"]}` (a relative
+entry matches a folder or file at any depth, an absolute one a path prefix). Without that file the
+defaults are any `hub` folder and any `.env` file. `-Directory` adds the folder's text files to the
+prompt (the API cannot open files). A request over `-MaxPromptChars` (60,000) is refused, not cut:
+split it. The answer is cut at `-MaxResponseChars` (100,000) and saved with `status: UNVERIFIED`.
+Usage and room are `unknown` (Model Studio has no cheap quota read this script uses), never 0 %:
+the answer header only carries that call's token counts. Exit codes: 0 saved, 1 bad arguments or
+request too big, 2 blocked by the privacy gate, 3 the call failed or timed out, 5 no API key.
+Fleet does not show a Qwen card; the director lists Qwen in its table as `canWrite: false`.
+
 ### Fleet Deck: the pane in the desktop app
 
 In the Claude Code desktop app (and the editor extension) `/fleet` draws the **Deck** instead of
@@ -441,7 +474,7 @@ through that link. Run the installer again after pulling a new version.
 In a hub session the director plans the work before anyone starts it. It splits the request into
 tasks and gives each one a level (`high`, `medium`, `low`), an effort, a priority and an executor:
 the hub session itself, a worker on another of your Claude accounts, ChatGPT (through Codex, the
-`ask-chatgpt` skill) or Gemini (through Antigravity's CLI). It reads every subscription's state
+`ask-chatgpt` skill) Gemini (through Antigravity's CLI) or Qwen (Alibaba Cloud's API, see above). It reads every subscription's state
 from `fleet_status`, shows the plan as a table and launches nothing until you approve it.
 
 - **Routing table.** `skills/fleet-director/director.default.json`: the executors, the options for

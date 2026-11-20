@@ -49,6 +49,12 @@
         "high",
         "max"
       ]
+    },
+    "qwen": {
+      "provider": "alibaba",
+      "what": "Qwen through Alibaba Cloud Model Studio, read-only second opinion (ask-qwen.ps1). Data goes to Alibaba Cloud servers (Singapore by default): never for private material",
+      "canWrite": false,
+      "efforts": []
     }
   },
   "levels": {
@@ -103,6 +109,10 @@
         {
           "executor": "gemini",
           "model": "gemini-3.8-flash-high"
+        },
+        {
+          "executor": "qwen",
+          "model": "qwen3-coder-plus"
         }
       ]
     },
@@ -126,6 +136,10 @@
         {
           "executor": "gemini",
           "model": "gpt-oss-120b-medium"
+        },
+        {
+          "executor": "qwen",
+          "model": "qwen3-coder-plus"
         }
       ]
     }

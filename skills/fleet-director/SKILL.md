@@ -87,6 +87,14 @@ first plan, and plan within it: never ask an executor for something it lists as 
      (looks like a secret), 3 agy failed or no account has room, 4 another Gemini run holds the
      account lock (it waits 2 minutes first; try later), 5 agy not installed, 6 the Google account
      is unavailable (tell the user: aisw or its profile is missing).
+   - `qwen`: `pwsh -NoProfile -File <skill-dir>/scripts/ask-qwen.ps1 -Prompt "<task>" -Out <file>
+     -Model qwen3-coder-plus [-Directory <folder>]` (or `-PromptFile`), in the background. Read-only
+     (one API call, no tools; `-Directory` text files are put in the prompt). **Data goes to Alibaba
+     Cloud servers outside the EU/US: never for private, customer or employer material.** Its usage
+     is unknown, so treat it as a cheap extra opinion, not a place with guaranteed room. Exit codes:
+     0 saved, 1 bad arguments or request over 60,000 characters (split it), 2 blocked (secret or
+     private path), 3 call failed or timed out (a 403/429 means its quota or rate is spent), 5 no
+     `DASHSCOPE_API_KEY` (tell the user it is not set up). Answer header: `status: UNVERIFIED`.
 6. **Follow up.** As results land: read each answer file (marked unverified: `status: UNVERIFIED` from
    Gemini, `estado: SIN VERIFICAR` from ask-chatgpt), verify its claims before using them, and mark
    it verified or partial. Check workers with
