@@ -68,6 +68,11 @@ to do". When a fact here and `fleet_status` disagree, `fleet_status` wins (it is
   text, folders with `.env`/key files and anything under a private path (`~/.claude-switch/qwen-private.json`;
   default: any `hub` folder and any `.env`).
 - Models: `qwen3-coder-plus` (code, default). Other Model Studio ids work if the user's account has them.
+- `-Provider nexus`: a third-party reseller (nexusapi.co, key `NEXUS_QWEN_API_KEY`, models
+  `Qwen3.8-Max-agent`, `Qwen3.8-Max-fast-agent` (default), `Qwen3.8-Max-thinking-agent`: reseller names,
+  not verified Alibaba ids). Its terms, logging and uptime are unknown and the key may expire. Low-risk
+  text only (public research, drafts, second opinions on non-private text); never project code, design
+  docs, secrets or personal data.
 - Size: a request over 60,000 characters is refused, not cut: split it (one part of a diff per call).
   The answer is cut at 100,000 characters.
 - Usage and room are unknown (no cheap read): never plan on "Qwen has room"; a 403 or 429 (exit 3)

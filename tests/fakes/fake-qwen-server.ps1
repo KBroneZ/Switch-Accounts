@@ -13,7 +13,10 @@ try {
         $prompt = $req.messages[0].content
         $auth = if ($ctx.Request.Headers['Authorization'] -eq "Bearer $ExpectedKey") { 'AUTH_OK' } else { 'AUTH_BAD' }
         $status = 200
-        if ($prompt -match 'FAKE_HTTP500') {
+        if ($prompt -match 'FAKE_HTTP401') {
+            $status = 401
+            $payload = 'unauthorized'
+        } elseif ($prompt -match 'FAKE_HTTP500') {
             $status = 500
             $payload = "server error, your key was $ExpectedKey"
         } elseif ($prompt -match 'FAKE_BIGANSWER') {

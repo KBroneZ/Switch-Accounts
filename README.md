@@ -421,6 +421,17 @@ the answer header only carries that call's token counts. Exit codes: 0 saved, 1 
 request too big, 2 blocked by the privacy gate, 3 the call failed or timed out, 5 no API key.
 Fleet does not show a Qwen card; the director lists Qwen in its table as `canWrite: false`.
 
+**Second route: a third-party reseller.** `ask-qwen.ps1 -Provider nexus` calls
+`https://api.nexusapi.co/qwen/v1` with the key in the user environment variable `NEXUS_QWEN_API_KEY`
+(read from the process environment, else from the User scope) and the model `Qwen3.8-Max-fast-agent`
+(`Qwen3.8-Max-agent` and `Qwen3.8-Max-thinking-agent` also exist; these are the reseller's names, not
+verified Alibaba ids). `-BaseUrl`, `-ApiKeyEnv` and `-Model` override the presets; `-ShowConfig` prints
+what would be used (never the key) without sending. The reseller is not Alibaba: its terms and logging
+are unknown and the key may expire, so send it **low-risk text only** (public research, drafts, second
+opinions on non-private text), never project code, design docs, secrets or personal data. The privacy
+gate stays on. A 401/403 says "reseller key rejected or expired". The answer header says
+`source: Qwen via third-party reseller nexusapi.co (unverified)`.
+
 ### Fleet Deck: the pane in the desktop app
 
 In the Claude Code desktop app (and the editor extension) `/fleet` draws the **Deck** instead of
