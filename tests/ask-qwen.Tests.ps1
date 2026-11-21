@@ -16,13 +16,15 @@ BeforeAll {
 
     function Invoke-AskQwen {
         param([string[]] $Arguments, [string] $Key = $script:TestKey)
-        $previous = $env:DASHSCOPE_API_KEY
+        $names = 'DASHSCOPE_API_KEY', 'NEXUS_QWEN_API_KEY'
+        $previous = @{}
+        foreach ($n in $names) { $previous[$n] = [Environment]::GetEnvironmentVariable($n) }
         try {
-            if ($Key) { $env:DASHSCOPE_API_KEY = $Key } else { Remove-Item Env:DASHSCOPE_API_KEY -ErrorAction SilentlyContinue }
+            foreach ($n in $names) { [Environment]::SetEnvironmentVariable($n, $(if ($Key) { $Key } else { $null })) }
             $out = & $pwshPath -NoProfile -File $script @Arguments 2>&1
             [pscustomobject]@{ Exit = $LASTEXITCODE; Text = ($out -join "`n") }
         } finally {
-            if ($null -eq $previous) { Remove-Item Env:DASHSCOPE_API_KEY -ErrorAction SilentlyContinue } else { $env:DASHSCOPE_API_KEY = $previous }
+            foreach ($n in $names) { [Environment]::SetEnvironmentVariable($n, $previous[$n]) }
         }
     }
     $script:NoPrivate = Join-Path $TestDrive 'none.json'
@@ -136,9 +138,62 @@ Describe 'skills/fleet-director/scripts/ask-qwen.ps1' {
     }
 
     It 'exit 5 with no API key, naming the variable' {
-        $r = Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $TestDrive 'nokey.md'), '-BaseUrl', $fake.Url, '-DataDir', $TestDrive) -Key ''
+        # A variable name nobody sets, so a key kept in the real User scope cannot leak into the test.
+        $r = Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $TestDrive 'nokey.md'), '-BaseUrl', $fake.Url, '-DataDir', $TestDrive, '-ApiKeyEnv', 'NO_SUCH_QWEN_KEY_VAR') -Key ''
         $r.Exit | Should -Be 5
-        $r.Text | Should -Match 'DASHSCOPE_API_KEY'
+        $r.Text | Should -Match 'NO_SUCH_QWEN_KEY_VAR'
+    }
+
+    It 'provider presets: alibaba is the default, nexus sets URL, key variable and model' {
+        $a = Invoke-AskQwen @('-Prompt', 'x', '-Out', (Join-Path $TestDrive 'a.md'), '-ShowConfig', '-DataDir', $TestDrive)
+        $a.Exit | Should -Be 0
+        $a.Text | Should -Be 'provider=alibaba url=https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions model=qwen3-coder-plus keyEnv=DASHSCOPE_API_KEY'
+        $n = Invoke-AskQwen @('-Prompt', 'x', '-Out', (Join-Path $TestDrive 'n.md'), '-Provider', 'nexus', '-ShowConfig', '-DataDir', $TestDrive)
+        $n.Exit | Should -Be 0
+        $n.Text | Should -Be 'provider=nexus url=https://api.nexusapi.co/qwen/v1/chat/completions model=Qwen3.8-Max-fast-agent keyEnv=NEXUS_QWEN_API_KEY'
+        $n.Text | Should -Not -Match $script:TestKey
+    }
+
+    It 'explicit -BaseUrl, -ApiKeyEnv and -Model override the preset' {
+        $r = Invoke-AskQwen @('-Prompt', 'x', '-Out', (Join-Path $TestDrive 'o.md'), '-Provider', 'nexus', '-BaseUrl', 'https://example.test/v9', '-ApiKeyEnv', 'MY_OTHER_KEY', '-Model', 'Qwen3.8-Max-thinking-agent', '-ShowConfig', '-DataDir', $TestDrive)
+        $r.Text | Should -Be 'provider=nexus url=https://example.test/v9/chat/completions model=Qwen3.8-Max-thinking-agent keyEnv=MY_OTHER_KEY'
+    }
+
+    It 'accepts mixed-case model ids and still rejects odd characters' {
+        foreach ($m in 'Qwen3.8-Max-agent', 'Qwen3.8-Max-fast-agent', 'Qwen3.8-Max-thinking-agent') {
+            (Invoke-AskQwen @('-Prompt', 'x', '-Out', (Join-Path $TestDrive 'm.md'), '-Model', $m, '-ShowConfig', '-DataDir', $TestDrive)).Exit | Should -Be 0
+        }
+        (Invoke-AskQwen @('-Prompt', 'x', '-Out', (Join-Path $TestDrive 'm.md'), '-Model', 'Qwen 3;rm', '-DataDir', $TestDrive)).Exit | Should -Be 1
+        (Invoke-AskQwen @('-Prompt', 'x', '-Out', (Join-Path $TestDrive 'm.md'), '-Model', ('A' * 61), '-DataDir', $TestDrive)).Exit | Should -Be 1
+    }
+
+    It 'nexus route: header names the reseller honestly, key and model reach the server' {
+        $out = Join-Path $TestDrive 'nexus.md'
+        $r = Invoke-AskQwen @('-Prompt', 'hola', '-Out', $out, '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $TestDrive)
+        $r.Exit | Should -Be 0
+        $text = Get-Content -LiteralPath $out -Raw
+        $text | Should -Match '(?m)^source: Qwen via third-party reseller nexusapi\.co \(unverified\)$'
+        $text | Should -Match '(?m)^status: UNVERIFIED$'
+        $text | Should -Match '(?m)^model: Qwen3\.8-Max-fast-agent$'
+        $text | Should -Match 'AUTH_OK'
+        $text | Should -Not -Match $script:TestKey
+    }
+
+    It 'nexus route keeps the privacy gate on' {
+        $out = Join-Path $TestDrive 'nexus-secret.md'
+        $r = Invoke-AskQwen @('-Prompt', 'password = hunter2hunter2', '-Out', $out, '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $TestDrive)
+        $r.Exit | Should -Be 2
+        Test-Path -LiteralPath $out | Should -BeFalse
+    }
+
+    It 'a 401 says the reseller key was rejected or expired, without a stack trace or the key' {
+        $r = Invoke-AskQwen @('-Prompt', 'FAKE_HTTP401', '-Out', (Join-Path $TestDrive 'e401.md'), '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $TestDrive)
+        $r.Exit | Should -Be 3
+        $r.Text | Should -Match 'reseller key rejected or expired \(HTTP 401\)'
+        $r.Text | Should -Not -Match 'at <ScriptBlock>|StackTrace'
+        $r.Text | Should -Not -Match $script:TestKey
+        $a = Invoke-AskQwen @('-Prompt', 'FAKE_HTTP401', '-Out', (Join-Path $TestDrive 'e401b.md'), '-BaseUrl', $fake.Url, '-DataDir', $TestDrive)
+        $a.Text | Should -Match 'Alibaba key rejected or expired'
     }
 
     It 'exit 3 on an HTTP error, and never prints the key' {

@@ -22,6 +22,12 @@
     Studio offers no cheap quota read this script relies on, so usage is `unknown` (never 0 %); the header
     carries the token counts of the call.
 
+    -Provider nexus: a THIRD-PARTY RESELLER (https://api.nexusapi.co/qwen/v1, key in NEXUS_QWEN_API_KEY, model
+    Qwen3.8-Max-fast-agent by default). Not Alibaba, not verified: its terms, logging and model names are unknown.
+    Low-risk text only (public research, drafts, second opinions on non-private text); never project code, design
+    docs, secrets or personal data. The privacy gate stays on. The answer header says so. -BaseUrl, -ApiKeyEnv and
+    -Model override the presets.
+
     Exit codes: 0 saved, 1 bad arguments (or a prompt over the size limit), 2 blocked by the privacy gate,
     3 the call failed, timed out or answered with an error, 5 no API key in the environment.
 .EXAMPLE
@@ -34,7 +40,10 @@ param(
     [string] $Prompt,
     [string] $PromptFile,
     [Parameter(Mandatory)] [string] $Out,
-    [string] $Model = 'qwen3-coder-plus',
+    # Default: qwen3-coder-plus (alibaba), Qwen3.8-Max-fast-agent (nexus).
+    [string] $Model,
+    # alibaba (default): Alibaba Cloud Model Studio. nexus: a third-party reseller, nexusapi.co (see .DESCRIPTION).
+    [ValidateSet('alibaba', 'nexus')] [string] $Provider = 'alibaba',
     # A folder whose text files are added to the prompt (read-only). Empty: the prompt alone.
     [string] $Directory,
     [int] $TimeoutSeconds = 300,
@@ -42,14 +51,21 @@ param(
     [int] $MaxPromptChars = 60000,
     # The answer is cut at this many characters (the header says so).
     [int] $MaxResponseChars = 100000,
-    [string] $ApiKeyEnv = 'DASHSCOPE_API_KEY',
-    # OpenAI-compatible base URL. https only (http only for localhost, for tests).
-    [string] $BaseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    # Default: DASHSCOPE_API_KEY (alibaba), NEXUS_QWEN_API_KEY (nexus).
+    [string] $ApiKeyEnv,
+    # OpenAI-compatible base URL; default by provider. https only (http only for localhost, for tests).
+    [string] $BaseUrl,
     [string] $PrivateConfigPath,
-    [string] $DataDir
+    [string] $DataDir,
+    # Print the resolved provider, URL, model and key variable name (never the key) and stop; nothing is sent.
+    [switch] $ShowConfig
 )
 $ErrorActionPreference = 'Stop'
 
+$Presets = @{
+    alibaba = @{ BaseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'; ApiKeyEnv = 'DASHSCOPE_API_KEY'; Model = 'qwen3-coder-plus'; Source = 'Qwen (Alibaba Cloud Model Studio)'; KeyWho = 'Alibaba key' }
+    nexus   = @{ BaseUrl = 'https://api.nexusapi.co/qwen/v1'; ApiKeyEnv = 'NEXUS_QWEN_API_KEY'; Model = 'Qwen3.8-Max-fast-agent'; Source = 'Qwen via third-party reseller nexusapi.co (unverified)'; KeyWho = 'reseller key' }
+}
 # The raw HTTP body is never read past this size.
 $MaxBodyBytes = 4MB
 # Folder files: only text up to this size each, at most this many.
@@ -155,7 +171,11 @@ function Read-FolderContext([string] $Root, [string[]] $Private) {
 
 if (-not $Prompt -and -not $PromptFile) { Stop-With 1 'Missing -Prompt or -PromptFile.' }
 if ($Prompt -and $PromptFile) { Stop-With 1 'Use -Prompt or -PromptFile, not both.' }
-if ($Model -notmatch '^[a-z0-9][a-z0-9.\-_]{0,59}$') { Stop-With 1 "Invalid model: $Model (a Model Studio id such as qwen3-coder-plus)." }
+$preset = $Presets[$Provider]
+if (-not $Model) { $Model = $preset.Model }
+if (-not $ApiKeyEnv) { $ApiKeyEnv = $preset.ApiKeyEnv }
+if (-not $BaseUrl) { $BaseUrl = $preset.BaseUrl }
+if ($Model -notmatch '^[A-Za-z0-9][A-Za-z0-9.\-_]{0,59}$') { Stop-With 1 "Invalid model: $Model (letters, digits, . - _; at most 60)." }
 if ($TimeoutSeconds -lt 10 -or $TimeoutSeconds -gt 1800) { Stop-With 1 'TimeoutSeconds goes from 10 to 1800.' }
 if ($MaxPromptChars -lt 1000 -or $MaxPromptChars -gt 500000) { Stop-With 1 'MaxPromptChars goes from 1000 to 500000.' }
 if ($MaxResponseChars -lt 1000) { Stop-With 1 'MaxResponseChars must be at least 1000.' }
@@ -192,7 +212,10 @@ if ($content.Length -gt $MaxPromptChars) {
     Stop-With 1 "The request is $($content.Length) characters; the limit is $MaxPromptChars. Split it (a smaller folder, one part of the diff per call) or raise -MaxPromptChars. Nothing was sent."
 }
 
+if ($ShowConfig) { Write-Output "provider=$Provider url=$($uri.AbsoluteUri) model=$Model keyEnv=$ApiKeyEnv"; exit 0 }
+# The process environment first; a process started before the variable was set misses it, so then the User scope.
 $apiKey = [Environment]::GetEnvironmentVariable($ApiKeyEnv)
+if (-not $apiKey) { $apiKey = [Environment]::GetEnvironmentVariable($ApiKeyEnv, 'User') }
 if (-not $apiKey) { Stop-With 5 "No API key: set the user environment variable $ApiKeyEnv (see README, 'Qwen'). Nothing was sent." }
 
 $body = @{
@@ -222,6 +245,9 @@ try {
     } catch [System.Net.Http.HttpRequestException] {
         Stop-With 3 "The call failed: $(Hide-Key $_.Exception.Message $apiKey)"
     }
+    if ($response.StatusCode -in 401, 403) {
+        Stop-With 3 "Qwen ($Provider): $($preset.KeyWho) rejected or expired (HTTP $([int]$response.StatusCode)). Check $ApiKeyEnv, or the quota of the account."
+    }
     if (-not $response.IsSuccessStatusCode) {
         $why = Hide-Key $raw $apiKey
         if ($why.Length -gt 600) { $why = $why.Substring(0, 600) }
@@ -239,7 +265,7 @@ if ($cut) { $text = $text.Substring(0, $MaxResponseChars) + "`n`n[Answer cut at 
 $tokens = if ($answer.usage) { "$($answer.usage.prompt_tokens) in / $($answer.usage.completion_tokens) out" } else { 'unknown' }
 $header = @(
     '---'
-    'source: Qwen (Alibaba Cloud Model Studio)'
+    "source: $($preset.Source)"
     "model: $Model"
     "folder: $(if ($Directory) { "$($context.Files) files from $dirFull ($($context.Skipped) skipped)" } else { 'none' })"
     "tokens: $tokens"
