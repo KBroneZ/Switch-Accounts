@@ -23,13 +23,20 @@
     carries the token counts of the call.
 
     -Provider nexus: a THIRD-PARTY RESELLER (https://api.nexusapi.co/qwen/v1, key in NEXUS_QWEN_API_KEY, model
-    Qwen3.8-Max-fast-agent by default). Not Alibaba, not verified: its terms, logging and model names are unknown.
-    Low-risk text only (public research, drafts, second opinions on non-private text); never project code, design
-    docs, secrets or personal data. The privacy gate stays on. The answer header says so. -BaseUrl, -ApiKeyEnv and
-    -Model override the presets.
+    Qwen3.8-Max-fast-agent by default). Not Alibaba, not verified: its terms and logging are unknown. It may take the
+    user's own project text and code, but the privacy gate stays on (secrets, credentials, keys, .env files, private
+    paths, personal or customer data are never sent). -BaseUrl, -ApiKeyEnv and -Model override the presets.
+
+    nexus usage: the key is capped at 28,000,000 tokens per 5-hour cycle and expires. After each successful call the
+    tokens of the answer's `usage` go to a local ledger, <DataDir>/qwen-nexus-usage.json (timestamp and tokens only,
+    never the key or the prompt; entries older than 6 hours are dropped). The call is refused (exit 4) when the last
+    5 hours reached refuseAt5h (default 27,000,000) and (exit 6) after the expiry date. Both come from the optional
+    <DataDir>/qwen-nexus.json: {"expires": "2026-11-28T23:59:00Z", "refuseAt5h": 27000000}. -Usage prints the state.
 
     Exit codes: 0 saved, 1 bad arguments (or a prompt over the size limit), 2 blocked by the privacy gate,
-    3 the call failed, timed out or answered with an error, 5 no API key in the environment.
+    3 the call failed, timed out or answered with an error (a 401/403 means the key was rejected or expired),
+    4 nexus only: the 5-hour token threshold is reached (try after the cycle), 5 no API key in the environment,
+    6 nexus only: past the expiry date.
 .EXAMPLE
     pwsh -NoProfile -File ask-qwen.ps1 -Prompt "Summarise this log: ..." -Out answers/log.md
 .EXAMPLE
@@ -39,7 +46,8 @@
 param(
     [string] $Prompt,
     [string] $PromptFile,
-    [Parameter(Mandatory)] [string] $Out,
+    # Where the answer goes (needed unless -Usage).
+    [string] $Out,
     # Default: qwen3-coder-plus (alibaba), Qwen3.8-Max-fast-agent (nexus).
     [string] $Model,
     # alibaba (default): Alibaba Cloud Model Studio. nexus: a third-party reseller, nexusapi.co (see .DESCRIPTION).
@@ -58,7 +66,9 @@ param(
     [string] $PrivateConfigPath,
     [string] $DataDir,
     # Print the resolved provider, URL, model and key variable name (never the key) and stop; nothing is sent.
-    [switch] $ShowConfig
+    [switch] $ShowConfig,
+    # nexus ledger: print the last-5-hours token use, the refuse threshold and the expiry, then stop (no key, no network).
+    [switch] $Usage
 )
 $ErrorActionPreference = 'Stop'
 
@@ -85,6 +95,50 @@ $SecretFiles = '^(\.env(\.(?!example$|sample$|template$|dist$)[\w.-]+)?|.*\.(pem
 $SkipFolders = 'node_modules', '.git', '.venv', 'venv', 'dist', 'build', '.next', 'target'
 $BinaryExtensions = '\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|7z|exe|dll|so|bin|woff2?|ttf|mp[34]|mov|lock)$'
 $DefaultPrivate = @('hub')
+
+$NexusDefaultExpires = '2026-11-28T23:59:00Z'
+$NexusDefaultRefuseAt = 27000000
+$LedgerKeepHours = 6
+$LedgerWindowHours = 5
+
+function Get-NexusState([string] $Dir) {
+    $expires = [DateTimeOffset]::Parse($NexusDefaultExpires, [Globalization.CultureInfo]::InvariantCulture)
+    $refuseAt = $NexusDefaultRefuseAt
+    $configPath = Join-Path $Dir 'qwen-nexus.json'
+    if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+        try {
+            $cfg = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+            if ($cfg.expires) { $expires = [DateTimeOffset]::Parse("$($cfg.expires)", [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal) }
+            if ($cfg.refuseAt5h) { $refuseAt = [long] $cfg.refuseAt5h }
+        } catch { Stop-With 1 "Cannot read $($configPath): $($_.Exception.Message)" }
+    }
+    $entries = Read-NexusLedger (Join-Path $Dir 'qwen-nexus-usage.json')
+    $since = [DateTimeOffset]::UtcNow.AddHours(-$LedgerWindowHours)
+    $recent = @($entries | Where-Object { [DateTimeOffset]::Parse("$($_.at)", [Globalization.CultureInfo]::InvariantCulture) -ge $since })
+    $used = [long] ($recent | Measure-Object -Property tokens -Sum).Sum
+    [pscustomobject]@{ Used5h = $used; Calls5h = $recent.Count; RefuseAt = $refuseAt; Expires = $expires; Expired = ([DateTimeOffset]::UtcNow -gt $expires) }
+}
+
+# A ledger that cannot be read stops the call: an unknown use is never counted as zero.
+function Read-NexusLedger([string] $Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    try {
+        $json = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        if ($json.schema -ne 1) { throw 'unknown schema' }
+        return @($json.entries)
+    } catch { Stop-With 1 "The usage ledger $Path cannot be read ($($_.Exception.Message)). Fix or delete it; nothing was sent." }
+}
+
+function Add-NexusLedger([string] $Path, [long] $Tokens, [bool] $Estimated) {
+    $keep = [DateTimeOffset]::UtcNow.AddHours(-$LedgerKeepHours)
+    $entries = @(Read-NexusLedger $Path | Where-Object { [DateTimeOffset]::Parse("$($_.at)", [Globalization.CultureInfo]::InvariantCulture) -ge $keep })
+    $entries += [pscustomobject]@{ at = [DateTimeOffset]::UtcNow.ToString('o'); tokens = $Tokens; estimated = $Estimated }
+    $dir = Split-Path -Parent ([IO.Path]::GetFullPath($Path))
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $tmp = "$Path.tmp$PID"
+    Set-Content -LiteralPath $tmp -Value ([pscustomobject]@{ schema = 1; entries = $entries } | ConvertTo-Json -Depth 4) -Encoding utf8NoBOM
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
 
 function Stop-With([int] $Code, [string] $Message) {
     [Console]::Error.WriteLine($Message)
@@ -169,6 +223,13 @@ function Read-FolderContext([string] $Root, [string[]] $Private) {
     [pscustomobject]@{ Text = ($parts -join "`n`n"); Files = $count; Skipped = $skipped }
 }
 
+if (-not $DataDir) { $DataDir = if ($env:SWITCH_DATA_DIR) { $env:SWITCH_DATA_DIR } else { Join-Path $HOME '.claude-switch' } }
+if ($Usage) {
+    $st = Get-NexusState $DataDir
+    Write-Output "provider=nexus used5h=$($st.Used5h) calls5h=$($st.Calls5h) refuseAt5h=$($st.RefuseAt) expires=$($st.Expires.ToString('u')) expired=$($st.Expired.ToString().ToLower())"
+    exit 0
+}
+if (-not $Out) { Stop-With 1 'Missing -Out.' }
 if (-not $Prompt -and -not $PromptFile) { Stop-With 1 'Missing -Prompt or -PromptFile.' }
 if ($Prompt -and $PromptFile) { Stop-With 1 'Use -Prompt or -PromptFile, not both.' }
 $preset = $Presets[$Provider]
@@ -213,6 +274,11 @@ if ($content.Length -gt $MaxPromptChars) {
 }
 
 if ($ShowConfig) { Write-Output "provider=$Provider url=$($uri.AbsoluteUri) model=$Model keyEnv=$ApiKeyEnv"; exit 0 }
+if ($Provider -eq 'nexus') {
+    $nexus = Get-NexusState $DataDir
+    if ($nexus.Expired) { Stop-With 6 "The reseller key is past its expiry date ($($nexus.Expires.ToString('u'))). Nothing was sent. Use another executor, or set a new date in qwen-nexus.json." }
+    if ($nexus.Used5h -ge $nexus.RefuseAt) { Stop-With 4 "The reseller's 5-hour token threshold is reached ($($nexus.Used5h) of $($nexus.RefuseAt)). Nothing was sent. Try after the cycle, or use another executor." }
+}
 # The process environment first; a process started before the variable was set misses it, so then the User scope.
 $apiKey = [Environment]::GetEnvironmentVariable($ApiKeyEnv)
 if (-not $apiKey) { $apiKey = [Environment]::GetEnvironmentVariable($ApiKeyEnv, 'User') }
@@ -260,6 +326,13 @@ try {
     $client.Dispose()
 }
 
+if ($Provider -eq 'nexus') {
+    $total = if ($answer.usage -and $answer.usage.total_tokens) { [long] $answer.usage.total_tokens } elseif ($answer.usage -and $answer.usage.prompt_tokens) { [long] $answer.usage.prompt_tokens + [long] $answer.usage.completion_tokens } else { 0 }
+    $estimated = $total -le 0
+    # No usage in the answer: a rough estimate (3 characters a token) rather than zero.
+    if ($estimated) { $total = [long] [Math]::Ceiling(($content.Length + $text.Length) / 3) }
+    try { Add-NexusLedger (Join-Path $DataDir 'qwen-nexus-usage.json') $total $estimated } catch { [Console]::Error.WriteLine("Could not write the usage ledger: $($_.Exception.Message)") }
+}
 $cut = $text.Length -gt $MaxResponseChars
 if ($cut) { $text = $text.Substring(0, $MaxResponseChars) + "`n`n[Answer cut at $MaxResponseChars characters.]" }
 $tokens = if ($answer.usage) { "$($answer.usage.prompt_tokens) in / $($answer.usage.completion_tokens) out" } else { 'unknown' }

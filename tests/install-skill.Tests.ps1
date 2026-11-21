@@ -155,6 +155,23 @@ Describe 'scripts/install-skill.ps1' {
         $table.executors.gemini.canWrite | Should -BeFalse
         $table.executors.qwen.canWrite | Should -BeFalse
         $table.executors.qwen.provider | Should -Be 'alibaba'
+        $table.executors.'qwen-nexus'.canWrite | Should -BeFalse
+        $table.executors.'qwen-nexus'.provider | Should -Be 'nexus-reseller'
+        # qwen-nexus: first for low, before chatgpt in medium, preferred for opinions, drafts and long logs.
+        $table.levels.low.options[0].executor | Should -Be 'qwen-nexus'
+        $names = @($table.levels.medium.options | ForEach-Object { $_.executor })
+        $names.IndexOf('qwen-nexus') | Should -BeGreaterThan -1
+        $names.IndexOf('qwen-nexus') | Should -BeLessThan $names.IndexOf('chatgpt')
+        foreach ($start in 'second opinion', 'drafts, copy', 'summarise or search') {
+            $type = $table.taskTypes | Where-Object { $_.type.StartsWith($start) }
+            $type.prefer | Should -Be 'qwen-nexus'
+            $type.fallback | Should -BeIn $table.executors.PSObject.Properties.Name
+        }
+        # Web research stays with ChatGPT: Qwen has no web search.
+        ($table.taskTypes | Where-Object { $_.type.StartsWith('web research') }).prefer | Should -Be 'chatgpt'
+        $table.atCap.qwenNexus | Should -Match 'exit 6'
+        $skill | Should -Match '`qwen-nexus`'
+        $skill | Should -Match '-Provider nexus -Usage'
         $table.atCap.never | Should -Match 'Never move a task to another Claude account'
         $skill | Should -Match 'every other option with `"provider": "anthropic"` is skipped too'
         $table.executors.'claude-hub'.provider | Should -Be 'anthropic'

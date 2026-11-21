@@ -31,7 +31,21 @@ BeforeAll {
 }
 
 Describe 'skills/fleet-director/scripts/ask-qwen.ps1' {
-    BeforeAll { $script:fake = Start-FakeQwen }
+    BeforeAll {
+        $script:fake = Start-FakeQwen
+        # The default expiry is a real date that will pass: tests use a far-away one.
+        Set-Content -LiteralPath (Join-Path $TestDrive 'qwen-nexus.json') -Value '{"expires": "2099-01-01T00:00:00Z"}'
+        function script:New-NexusDir([string] $ConfigJson, [string] $LedgerJson) {
+            $d = Join-Path $TestDrive "nx-$([guid]::NewGuid())"
+            New-Item -ItemType Directory -Path $d | Out-Null
+            if ($ConfigJson) { Set-Content -LiteralPath (Join-Path $d 'qwen-nexus.json') -Value $ConfigJson }
+            if ($LedgerJson) { Set-Content -LiteralPath (Join-Path $d 'qwen-nexus-usage.json') -Value $LedgerJson }
+            $d
+        }
+        function script:New-Ledger([long] $Tokens, [double] $HoursAgo) {
+            (@{ schema = 1; entries = @(@{ at = [DateTimeOffset]::UtcNow.AddHours(-$HoursAgo).ToString('o'); tokens = $Tokens }) } | ConvertTo-Json -Depth 4)
+        }
+    }
     AfterAll { if ($script:fake.Process -and -not $script:fake.Process.HasExited) { $script:fake.Process.Kill() } }
 
     It 'sends the prompt with the key, no tools, and saves the answer marked unverified' {
@@ -225,5 +239,75 @@ Describe 'skills/fleet-director/scripts/ask-qwen.ps1' {
         (Invoke-AskQwen @('-Prompt', 'x', '-PromptFile', 'y', '-Out', $out)).Exit | Should -Be 1
         (Invoke-AskQwen @('-Prompt', 'x', '-Out', $out, '-Model', 'bad model!')).Exit | Should -Be 1
         (Invoke-AskQwen @('-Out', $out)).Exit | Should -Be 1
+    }
+
+    It 'nexus: appends the call tokens to the ledger (time and tokens only, no key, no prompt)' {
+        $d = New-NexusDir '{"expires": "2099-01-01T00:00:00Z"}'
+        $r = Invoke-AskQwen @('-Prompt', 'PROMPT_MARKER_TEXT', '-Out', (Join-Path $d 'a.md'), '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $d)
+        $r.Exit | Should -Be 0
+        $ledgerPath = Join-Path $d 'qwen-nexus-usage.json'
+        $raw = Get-Content -LiteralPath $ledgerPath -Raw
+        $ledger = $raw | ConvertFrom-Json
+        $ledger.schema | Should -Be 1
+        @($ledger.entries).Count | Should -Be 1
+        $ledger.entries[0].tokens | Should -Be 10
+        $raw | Should -Not -Match $script:TestKey
+        $raw | Should -Not -Match 'PROMPT_MARKER_TEXT'
+        (Invoke-AskQwen @('-Prompt', 'otra', '-Out', (Join-Path $d 'b.md'), '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $d)).Exit | Should -Be 0
+        @((Get-Content -LiteralPath $ledgerPath -Raw | ConvertFrom-Json).entries).Count | Should -Be 2
+    }
+
+    It 'alibaba does not touch the nexus ledger' {
+        $d = New-NexusDir
+        (Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $d 'a.md'), '-BaseUrl', $fake.Url, '-DataDir', $d)).Exit | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $d 'qwen-nexus-usage.json') | Should -BeFalse
+    }
+
+    It 'nexus: refuses with exit 4 when the last 5 hours reached the threshold, and sends nothing' {
+        $d = New-NexusDir '{"expires": "2099-01-01T00:00:00Z"}' (New-Ledger 27000000 1)
+        $out = Join-Path $d 'a.md'
+        $r = Invoke-AskQwen @('-Prompt', 'hola', '-Out', $out, '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $d)
+        $r.Exit | Should -Be 4
+        $r.Text | Should -Match '5-hour token threshold'
+        Test-Path -LiteralPath $out | Should -BeFalse
+    }
+
+    It 'nexus: tokens older than 5 hours do not count; a custom refuseAt5h is honoured' {
+        $old = New-NexusDir '{"expires": "2099-01-01T00:00:00Z"}' (New-Ledger 27000000 5.5)
+        (Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $old 'a.md'), '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $old)).Exit | Should -Be 0
+        $low = New-NexusDir '{"expires": "2099-01-01T00:00:00Z", "refuseAt5h": 100}' (New-Ledger 100 0.5)
+        (Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $low 'a.md'), '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $low)).Exit | Should -Be 4
+    }
+
+    It 'nexus: refuses with exit 6 after the expiry date, and sends nothing' {
+        $d = New-NexusDir '{"expires": "2020-01-01T00:00:00Z"}'
+        $out = Join-Path $d 'a.md'
+        $r = Invoke-AskQwen @('-Prompt', 'hola', '-Out', $out, '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $d)
+        $r.Exit | Should -Be 6
+        $r.Text | Should -Match 'past its expiry date'
+        Test-Path -LiteralPath $out | Should -BeFalse
+    }
+
+    It 'nexus: an unreadable ledger stops the call (unknown use is never zero)' {
+        $d = New-NexusDir '{"expires": "2099-01-01T00:00:00Z"}' 'not json'
+        $r = Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $d 'a.md'), '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $d)
+        $r.Exit | Should -Be 1
+        $r.Text | Should -Match 'ledger'
+    }
+
+    It '-Usage prints the 5-hour use, threshold and expiry without a key or network' {
+        $d = New-NexusDir '{"expires": "2099-01-01T00:00:00Z"}' (New-Ledger 12345 1)
+        $r = Invoke-AskQwen @('-Usage', '-DataDir', $d) -Key ''
+        $r.Exit | Should -Be 0
+        $r.Text | Should -Be 'provider=nexus used5h=12345 calls5h=1 refuseAt5h=27000000 expires=2099-01-01 00:00:00Z expired=false'
+        $clean = New-NexusDir
+        $c = Invoke-AskQwen @('-Usage', '-DataDir', $clean) -Key ''
+        $c.Text | Should -Match 'used5h=0 calls5h=0 refuseAt5h=27000000 expires=2026-11-28 23:59:00Z'
+    }
+
+    It 'nexus: a 401 adds nothing to the ledger' {
+        $d = New-NexusDir '{"expires": "2099-01-01T00:00:00Z"}'
+        (Invoke-AskQwen @('-Prompt', 'FAKE_HTTP401', '-Out', (Join-Path $d 'a.md'), '-Provider', 'nexus', '-BaseUrl', $fake.Url, '-DataDir', $d)).Exit | Should -Be 3
+        Test-Path -LiteralPath (Join-Path $d 'qwen-nexus-usage.json') | Should -BeFalse
     }
 }

@@ -55,6 +55,12 @@
       "what": "Qwen through Alibaba Cloud Model Studio, read-only second opinion (ask-qwen.ps1). Data goes to Alibaba Cloud servers (Singapore by default): never for private material",
       "canWrite": false,
       "efforts": []
+    },
+    "qwen-nexus": {
+      "provider": "nexus-reseller",
+      "what": "Qwen through a third-party reseller (nexusapi.co), read-only (ask-qwen.ps1 -Provider nexus). May take the user's own project text and code; never secrets, credentials, keys, .env files, private paths, personal or customer data (the script blocks them). Key expires about 2026-11-28 and is capped at 28M tokens per 5-hour cycle; no web search. After expiry (exit 6), at the 5-hour threshold (exit 4) or on a 401/403 (exit 3) skip it and use the next option",
+      "canWrite": false,
+      "efforts": []
     }
   },
   "levels": {
@@ -97,6 +103,10 @@
           "effort": "medium"
         },
         {
+          "executor": "qwen-nexus",
+          "model": "Qwen3.8-Max-fast-agent"
+        },
+        {
           "executor": "chatgpt",
           "model": "gpt-6-luna",
           "effort": "high"
@@ -119,6 +129,10 @@
     "low": {
       "for": "mechanical edits, summaries, translations, drafts, reading long logs or files, quick checks",
       "options": [
+        {
+          "executor": "qwen-nexus",
+          "model": "Qwen3.8-Max-fast-agent"
+        },
         {
           "executor": "gemini",
           "model": "gemini-3.8-flash-medium"
@@ -154,19 +168,22 @@
     {
       "type": "second opinion or adversarial review of code, a plan or a decision",
       "level": "high",
-      "prefer": "chatgpt",
-      "chatgptMode": "review"
+      "prefer": "qwen-nexus",
+      "chatgptMode": "review",
+      "fallback": "chatgpt"
     },
     {
       "type": "drafts, copy, listings, translations",
       "level": "low",
-      "prefer": "chatgpt",
-      "chatgptMode": "copy"
+      "prefer": "qwen-nexus",
+      "chatgptMode": "copy",
+      "fallback": "chatgpt"
     },
     {
       "type": "summarise or search long logs, files or transcripts",
       "level": "low",
-      "prefer": "gemini"
+      "prefer": "qwen-nexus",
+      "fallback": "gemini"
     },
     {
       "type": "design or architecture decision",
@@ -198,6 +215,7 @@
   "atCap": {
     "fiveHour": "Use another provider's option of the same level. If none can do the task at that level, wait for the five-hour reset.",
     "weekly": "Use another provider's option of the same level. A weekly cap is never waited out; if no option is left, say so and leave the task pending.",
-    "never": "Never move a task to another Claude account because its account is at a cap: once a task's Claude option is skipped for a cap, every option with provider anthropic is skipped for it."
+    "never": "Never move a task to another Claude account because its account is at a cap: once a task's Claude option is skipped for a cap, every option with provider anthropic is skipped for it.",
+    "qwenNexus": "qwen-nexus is first for second opinions, drafts and long-log summaries only while its key is valid. Past the expiry date (exit 6), at the 5-hour token threshold (exit 4) or on a 401/403 (exit 3), skip it and use the task type's fallback, else the next option of the level. Check it with ask-qwen.ps1 -Provider nexus -Usage. It has no web search: web research stays with chatgpt."
   }
 }
