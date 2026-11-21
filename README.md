@@ -427,10 +427,21 @@ Fleet does not show a Qwen card; the director lists Qwen in its table as `canWri
 (`Qwen3.8-Max-agent` and `Qwen3.8-Max-thinking-agent` also exist; these are the reseller's names, not
 verified Alibaba ids). `-BaseUrl`, `-ApiKeyEnv` and `-Model` override the presets; `-ShowConfig` prints
 what would be used (never the key) without sending. The reseller is not Alibaba: its terms and logging
-are unknown and the key may expire, so send it **low-risk text only** (public research, drafts, second
-opinions on non-private text), never project code, design docs, secrets or personal data. The privacy
-gate stays on. A 401/403 says "reseller key rejected or expired". The answer header says
-`source: Qwen via third-party reseller nexusapi.co (unverified)`.
+are unknown. It may take your own project text and code (design docs, scripts), but never secrets,
+credentials, keys, `.env` files, private paths (`qwen-private.json`), personal or customer data: the
+privacy gate stays on for both routes. A 401/403 says "reseller key rejected or expired". The answer
+header says `source: Qwen via third-party reseller nexusapi.co (unverified)`.
+
+The reseller key is capped at 28,000,000 tokens per 5-hour cycle and expires (seven days from
+2026-11-21). After every successful nexus call the script appends the answer's token count to
+`~/.claude-switch/qwen-nexus-usage.json` (time and tokens only; entries older than 6 hours are
+dropped). It refuses with **exit 4** when the last 5 hours reach 27,000,000 tokens and with **exit 6**
+after the expiry date. Both are read from the optional `~/.claude-switch/qwen-nexus.json`:
+`{"expires": "2026-11-28T23:59:00Z", "refuseAt5h": 27000000}`. `ask-qwen.ps1 -Provider nexus -Usage`
+prints the 5-hour use, the threshold and the expiry (no key, no network). Usage is a `-Usage` switch,
+not a Fleet line: that is the smaller change, and it needs no plugin edit. In `director.default.json`
+`qwen-nexus` is the first option for second opinions, drafts and long-log summaries while valid; at
+expiry, at exit 4 or on a 401/403 the director uses the next option. Web research stays with ChatGPT.
 
 ### Fleet Deck: the pane in the desktop app
 

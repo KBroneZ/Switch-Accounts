@@ -95,12 +95,20 @@ first plan, and plan within it: never ask an executor for something it lists as 
      0 saved, 1 bad arguments or request over 60,000 characters (split it), 2 blocked (secret or
      private path), 3 call failed or timed out (a 403/429 means its quota or rate is spent), 5 no
      `DASHSCOPE_API_KEY` (tell the user it is not set up). Answer header: `status: UNVERIFIED`.
-     **Second route, `-Provider nexus`** (a third-party reseller, nexusapi.co; key in
-     `NEXUS_QWEN_API_KEY`; default model `Qwen3.8-Max-fast-agent`): not Alibaba, unverified terms and
-     logging, key may expire (a 401/403 says "reseller key rejected or expired"). **Low-risk text
-     only: public research, drafts, second opinions on non-private text. Never project code, design
-     docs, secrets or personal data.** Use the default `alibaba` provider unless the plan or the user
-     asks for nexus. The answer header says `source: Qwen via third-party reseller nexusapi.co (unverified)`.
+   - `qwen-nexus`: `pwsh -NoProfile -File <skill-dir>/scripts/ask-qwen.ps1 -Provider nexus -Prompt "<task>"
+     -Out <file> [-Directory <folder>]` (or `-PromptFile`), in the background; default model
+     `Qwen3.8-Max-fast-agent`. A third-party reseller (nexusapi.co, key `NEXUS_QWEN_API_KEY`), not
+     Alibaba: unverified terms and logging. It is first for second opinions, drafts and long-log
+     summaries, while its key is valid. **It may take the user's own project text and code (design
+     docs, Luau, scripts). Never secrets, credentials, keys, `.env` files, private paths
+     (`qwen-private.json`), personal or customer data: the script blocks what it recognises, but read
+     the prompt first.** No web search: web research stays with ChatGPT. Check it with
+     `ask-qwen.ps1 -Provider nexus -Usage` (tokens used in the last 5 hours, refuse threshold, expiry;
+     no key, no network). Exit codes as for `qwen`, plus: 4 the 5-hour token threshold is reached
+     (27 M of the 28 M cap; try after the cycle), 6 past the expiry date (about 2026-11-28). On 3 with
+     "reseller key rejected or expired" (401/403), 4 or 6, skip `qwen-nexus` and use the task type's
+     `fallback`, else the next option of the level; tell the user. The answer header says
+     `source: Qwen via third-party reseller nexusapi.co (unverified)`.
 6. **Follow up.** As results land: read each answer file (marked unverified: `status: UNVERIFIED` from
    Gemini, `estado: SIN VERIFICAR` from ask-chatgpt), verify its claims before using them, and mark
    it verified or partial. Check workers with

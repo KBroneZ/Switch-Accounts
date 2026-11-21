@@ -70,9 +70,18 @@ to do". When a fact here and `fleet_status` disagree, `fleet_status` wins (it is
 - Models: `qwen3-coder-plus` (code, default). Other Model Studio ids work if the user's account has them.
 - `-Provider nexus`: a third-party reseller (nexusapi.co, key `NEXUS_QWEN_API_KEY`, models
   `Qwen3.8-Max-agent`, `Qwen3.8-Max-fast-agent` (default), `Qwen3.8-Max-thinking-agent`: reseller names,
-  not verified Alibaba ids). Its terms, logging and uptime are unknown and the key may expire. Low-risk
-  text only (public research, drafts, second opinions on non-private text); never project code, design
-  docs, secrets or personal data.
+  not verified Alibaba ids). Its terms, logging and uptime are unknown.
+  - What it can take: the user's own project text and code (design docs, Luau, scripts), drafts,
+    translations, long logs. What it never gets: secrets, credentials, keys, `.env` files, private
+    paths (`qwen-private.json`), personal or customer data (the script blocks what it recognises).
+  - Key valid 7 days from 2026-11-21 (expires about 2026-11-28; the date is `expires` in
+    `~/.claude-switch/qwen-nexus.json`). Capped at 28 M tokens per 5-hour cycle; the script keeps a
+    local ledger (`~/.claude-switch/qwen-nexus-usage.json`: time and tokens, never the key or the
+    prompt), refuses with exit 4 when the last 5 hours reach 27 M and with exit 6 after the expiry.
+    `ask-qwen.ps1 -Provider nexus -Usage` shows both. Tokens spent by anyone else on the key are not
+    in the ledger.
+  - No web search: web research goes to ChatGPT. Models are the reseller's names; the first live
+    call (2026-11-21) answered `invalid_model` for `Qwen3.8-Max-fast-agent`, so the id may need fixing.
 - Size: a request over 60,000 characters is refused, not cut: split it (one part of a diff per call).
   The answer is cut at 100,000 characters.
 - Usage and room are unknown (no cheap read): never plan on "Qwen has room"; a 403 or 429 (exit 3)
