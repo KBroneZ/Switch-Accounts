@@ -1,4 +1,11 @@
 BeforeAll {
+    # The scripts read ~/.claude-switch and ~/.aisw. Point HOME at an empty folder so a test never touches
+    # the real Google accounts, the real gemini.lock or the live Antigravity profile.
+    $realHome = @{ HOME = $env:HOME; USERPROFILE = $env:USERPROFILE }
+    $fakeHome = Join-Path ([IO.Path]::GetTempPath()) "ask-gemini-home-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $fakeHome | Out-Null
+    $env:HOME = $fakeHome
+    $env:USERPROFILE = $fakeHome
     $script = Join-Path $PSScriptRoot '..' 'skills' 'fleet-director' 'scripts' 'ask-gemini.ps1'
     $pwshPath = (Get-Process -Id $PID).Path
 
@@ -36,6 +43,12 @@ $answer = @{ status = 'SUCCESS'; response = "ARGS: $($args -join ' | ')"; usage 
             if ($null -eq $previous) { Remove-Item Env:FAKE_AGY -ErrorAction SilentlyContinue } else { $env:FAKE_AGY = $previous }
         }
     }
+}
+
+AfterAll {
+    $env:HOME = $realHome.HOME
+    $env:USERPROFILE = $realHome.USERPROFILE
+    Remove-Item -LiteralPath $fakeHome -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'skills/fleet-director/scripts/ask-gemini.ps1' {
@@ -83,6 +96,21 @@ Describe 'skills/fleet-director/scripts/ask-gemini.ps1' {
         $blocked = Invoke-AskGemini @('-Prompt', 'hola', '-Out', (Join-Path $TestDrive 'no.md'), '-AgyPath', $agy, '-Directory', $repo)
         $blocked.Exit | Should -Be 2
         $blocked.Text | Should -BeLike '*.env*'
+    }
+
+    It 'looks for secret files only 3 folders down (the depth count is not corrupted by the comma operator)' {
+        $agy = New-FakeAgy
+        $repo = Join-Path $TestDrive "deep-$([guid]::NewGuid())"
+        $deep = Join-Path $repo 'a' 'b' 'c' 'd' 'e'
+        New-Item -ItemType Directory -Path $deep -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $deep '.env') -Value 'KEY=x'
+
+        $tooDeep = Invoke-AskGemini @('-Prompt', 'hola', '-Out', (Join-Path $TestDrive 'deep-ok.md'), '-AgyPath', $agy, '-Directory', $repo)
+        $tooDeep.Exit | Should -Be 0
+
+        Set-Content -LiteralPath (Join-Path $repo 'a' 'b' 'c' '.env') -Value 'KEY=x'
+        $reached = Invoke-AskGemini @('-Prompt', 'hola', '-Out', (Join-Path $TestDrive 'deep-no.md'), '-AgyPath', $agy, '-Directory', $repo)
+        $reached.Exit | Should -Be 2
     }
 
     It 'never lets a prompt that starts with a dash read as a flag' {
