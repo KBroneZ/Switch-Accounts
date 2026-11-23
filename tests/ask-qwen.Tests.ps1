@@ -93,6 +93,16 @@ Describe 'skills/fleet-director/scripts/ask-qwen.ps1' {
         Test-Path -LiteralPath $out | Should -BeFalse
     }
 
+    It 'looks for secret files only 3 folders down (the depth count is not corrupted by the comma operator)' {
+        $repo = Join-Path $TestDrive "deep-$([guid]::NewGuid())"
+        $deep = Join-Path $repo 'a' 'b' 'c' 'd' 'e'
+        New-Item -ItemType Directory -Path $deep -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $deep '.env') -Value 'A=1'
+        (Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $TestDrive 'deep-ok.md'), '-BaseUrl', $fake.Url, '-Directory', $repo, '-DataDir', $TestDrive)).Exit | Should -Be 0
+        Set-Content -LiteralPath (Join-Path $repo 'a' 'b' 'c' '.env') -Value 'A=1'
+        (Invoke-AskQwen @('-Prompt', 'hola', '-Out', (Join-Path $TestDrive 'deep-no.md'), '-BaseUrl', $fake.Url, '-Directory', $repo, '-DataDir', $TestDrive)).Exit | Should -Be 2
+    }
+
     It 'refuses a folder with a secret-looking file, allows .env.example' {
         $repo = Join-Path $TestDrive "repo-$([guid]::NewGuid())"
         New-Item -ItemType Directory -Path $repo | Out-Null

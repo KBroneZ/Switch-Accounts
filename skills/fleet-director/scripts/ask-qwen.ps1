@@ -180,7 +180,7 @@ function Find-SecretFile([string] $Root) {
         $dir, $depth = $queue.Dequeue()
         foreach ($item in Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue) {
             if ($item.PSIsContainer) {
-                if ($depth -lt 3 -and $item.Name -notin $SkipFolders) { $queue.Enqueue(@($item.FullName, $depth + 1)) }
+                if ($depth -lt 3 -and $item.Name -notin $SkipFolders) { $queue.Enqueue(@($item.FullName, ($depth + 1))) }
             } elseif ($item.Name -match $SecretFiles) {
                 return $item.FullName
             }
