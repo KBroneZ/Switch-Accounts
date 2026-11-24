@@ -5,7 +5,7 @@
     switch-account: skills/switch-account/SKILL.md, scripts/open-session.ps1, scripts/usage-report.ps1,
     scripts/token-ledger.ps1
     and the module (src/), so the skill carries what it runs. fleet-director: SKILL.md, LIMITS.md,
-    director.default.json and scripts/ask-gemini.ps1, gemini-usage.ps1 and gemini-accounts.ps1 from skills/fleet-director.
+    director.default.json and scripts/ask-gemini.ps1, gemini-usage.ps1, gemini-accounts.ps1 and ask-qwen.ps1 from skills/fleet-director.
     A skill that is already there is moved to <ConfigDir>/backups/<skill>-<timestamp> first
     (-NoBackup deletes it instead). A second account whose skills folder is linked to this config
     dir (Initialize-SecondaryAccount) gets the skills through that link.
@@ -39,6 +39,7 @@ $skillPayloads = [ordered]@{
         'scripts/ask-gemini.ps1'      = Join-Path $director 'scripts' 'ask-gemini.ps1'
         'scripts/gemini-accounts.ps1' = Join-Path $director 'scripts' 'gemini-accounts.ps1'
         'scripts/gemini-usage.ps1'    = Join-Path $director 'scripts' 'gemini-usage.ps1'
+        'scripts/ask-qwen.ps1'        = Join-Path $director 'scripts' 'ask-qwen.ps1'
     }
 }
 foreach ($payload in $skillPayloads.Values) {

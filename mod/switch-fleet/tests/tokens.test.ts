@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { FleetView } from '../types'
 import { buildFleet, parseSnapshot } from '../hooks/core'
-import { buildTokens, costOf, plainText, fmtTokens, fmtUsd, parseTokens, periodBounds, periodsOf, priceOf, tokenLines, tokenMarkdown, tokensOf } from '../hooks/tokens'
+import { buildTokens, codexNames, costOf, plainText, fmtTokens, fmtUsd, parseTokens, periodBounds, periodsOf, priceOf, tokenLines, tokenMarkdown, tokensOf } from '../hooks/tokens'
 import type { TokenDay } from '../hooks/tokens'
 
 /** Dollars to the millionth: float sums are not exact. */
@@ -62,6 +62,26 @@ describe('periods', () => {
     expect(usd(v.total.all.usd)).toBe(21)
     expect(v.unknownModels).toEqual(['gpt-6'])
     expect(v.since).toBe('2030-01-16')
+  })
+})
+
+describe('Codex homes', () => {
+  test('one home is ChatGPT; several are named by suffix, the main one A', () => {
+    expect([...codexNames([{ account: '.codex', kind: 'codex' }])]).toEqual([['.codex', 'ChatGPT']])
+    expect([...codexNames([{ account: 'A', kind: 'claude' }, { account: '.codex', kind: 'codex' }, { account: '.codex-b', kind: 'codex' }])]).toEqual([
+      ['.codex', 'ChatGPT A'],
+      ['.codex-b', 'ChatGPT B'],
+    ])
+    expect(codexNames([{ account: '.codex-x', kind: 'codex' }, { account: '.codex-b', kind: 'codex' }]).get('.codex-x')).toBe('ChatGPT X')
+  })
+
+  test('each home gets the tokens of its card', () => {
+    const s = parseTokens(doc([day({ a: '.codex', m: 'gpt-6-luna', o: 10 }), day({ a: '.codex-b', m: 'gpt-6-luna', o: 5 })], { sources: [{ account: 'A', kind: 'claude' }, { account: '.codex', kind: 'codex' }, { account: '.codex-b', kind: 'codex' }] }))!
+    const v = buildTokens(s, NOW, 0)
+    expect(tokensOf(v, 'ChatGPT A')?.periods.all.output).toBe(10)
+    expect(tokensOf(v, 'ChatGPT B')?.periods.all.output).toBe(5)
+    expect(tokensOf(v, 'ChatGPT B')?.kind).toBe('codex')
+    expect(v.total.all.output).toBe(15)
   })
 })
 

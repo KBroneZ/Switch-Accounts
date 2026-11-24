@@ -195,6 +195,26 @@ Describe 'Update-TokenLedger' {
         (Totals $r).i | Should -Be 40
     }
 
+    It 'counts ledger lines of the older single ChatGPT name under the main Codex home' {
+        $r = New-Root
+        $state = $r.State
+        New-Item -ItemType Directory -Path $state -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $state 'ledger.tsv') -Value @(
+            '# switch-fleet token ledger v1'
+            "codex:old`tChatGPT`tgpt-6-luna`t2030-01-09`t10`t20`t0`t0`t30"
+        )
+        $sources = @(
+            [pscustomobject]@{ Account = '.codex'; Kind = 'codex'; Dir = (Join-Path $r.Root 'codex') }
+            [pscustomobject]@{ Account = '.codex-b'; Kind = 'codex'; Dir = (Join-Path $r.Root 'codex-b') }
+        )
+        Run $r $sources | Out-Null
+        $doc = Get-Content -LiteralPath $r.Summary -Raw | ConvertFrom-Json
+        @($doc.days).Count | Should -Be 1
+        $doc.days[0].a | Should -Be '.codex'
+        $doc.days[0].o | Should -Be 20
+        ($doc.sources | ForEach-Object account) -join ',' | Should -Be '.codex,.codex-b'
+    }
+
     It 'runs one at a time: a second run while one holds the lock does nothing' {
         $r = New-Root
         1..3 | ForEach-Object { Set-Content -LiteralPath (Join-Path $r.Project "s$_.jsonl") -Value (Assistant "m$_" 1 1) }

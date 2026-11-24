@@ -33,7 +33,7 @@ Describe 'scripts/install-skill.ps1' {
         Get-Content -LiteralPath (Join-Path $target 'SKILL.md') -Raw | Should -Be (Get-Content -LiteralPath (Join-Path $repo 'skills' 'fleet-director' 'SKILL.md') -Raw)
         $table = Get-Content -LiteralPath (Join-Path $target 'director.default.json') -Raw | ConvertFrom-Json
         $table.schema | Should -Be 1
-        foreach ($name in 'ask-gemini.ps1', 'gemini-usage.ps1', 'gemini-accounts.ps1') {
+        foreach ($name in 'ask-gemini.ps1', 'gemini-usage.ps1', 'gemini-accounts.ps1', 'ask-qwen.ps1') {
             Test-Path -LiteralPath (Join-Path $target 'scripts' $name) | Should -BeTrue
         }
         Test-Path -LiteralPath (Join-Path $target 'LIMITS.md') | Should -BeTrue
@@ -148,12 +148,31 @@ Describe 'scripts/install-skill.ps1' {
         $skill | Should -Match 'scripts/ask-gemini.ps1'
         $skill | Should -Match 'LIMITS.md'
         $limits = Get-Content -LiteralPath (Join-Path $repo 'skills' 'fleet-director' 'LIMITS.md') -Raw
-        foreach ($section in '## The hub', '## Claude workers', '## ChatGPT', '## Gemini', '## What no executor does', '## A brief that gets finished') {
+        foreach ($section in '## The hub', '## Claude workers', '## ChatGPT', '## Gemini', '## Qwen', '## What no executor does', '## A brief that gets finished') {
             $limits | Should -Match ([regex]::Escape($section))
         }
         @($table.levels.PSObject.Properties.Name) | Should -Be @('high', 'medium', 'low')
         $table.executors.chatgpt.canWrite | Should -BeFalse
         $table.executors.gemini.canWrite | Should -BeFalse
+        $table.executors.qwen.canWrite | Should -BeFalse
+        $table.executors.qwen.provider | Should -Be 'alibaba'
+        $table.executors.'qwen-nexus'.canWrite | Should -BeFalse
+        $table.executors.'qwen-nexus'.provider | Should -Be 'nexus-reseller'
+        # qwen-nexus: first for low, before chatgpt in medium, preferred for opinions, drafts and long logs.
+        $table.levels.low.options[0].executor | Should -Be 'qwen-nexus'
+        $names = @($table.levels.medium.options | ForEach-Object { $_.executor })
+        $names.IndexOf('qwen-nexus') | Should -BeGreaterThan -1
+        $names.IndexOf('qwen-nexus') | Should -BeLessThan $names.IndexOf('chatgpt')
+        foreach ($start in 'second opinion', 'drafts, copy', 'summarise or search') {
+            $type = $table.taskTypes | Where-Object { $_.type.StartsWith($start) }
+            $type.prefer | Should -Be 'qwen-nexus'
+            $type.fallback | Should -BeIn $table.executors.PSObject.Properties.Name
+        }
+        # Web research stays with ChatGPT: Qwen has no web search.
+        ($table.taskTypes | Where-Object { $_.type.StartsWith('web research') }).prefer | Should -Be 'chatgpt'
+        $table.atCap.qwenNexus | Should -Match 'exit 6'
+        $skill | Should -Match '`qwen-nexus`'
+        $skill | Should -Match '-Provider nexus -Usage'
         $table.atCap.never | Should -Match 'Never move a task to another Claude account'
         $skill | Should -Match 'every other option with `"provider": "anthropic"` is skipped too'
         $table.executors.'claude-hub'.provider | Should -Be 'anthropic'

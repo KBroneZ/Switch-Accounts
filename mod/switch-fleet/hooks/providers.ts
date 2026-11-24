@@ -59,6 +59,41 @@ export function parseCodexRollout(text: string, now: number): ProviderView | nul
   return null
 }
 
+/** A Codex home: one ChatGPT account (its own `codex login`). */
+export type CodexHome = { dir: string; id: string; name: string }
+
+const EXTRA_HOME = /^\.codex-([a-z0-9]{1,12})$/i
+const normDir = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+const baseName = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() ?? ''
+
+/**
+ * The Codex homes to read: `main` (CODEX_HOME, else ~/.codex) first, then every `~/.codex-<name>`
+ * folder among `entries` (the user's home folder). One home keeps the plain `ChatGPT` name; with
+ * several each is named by its suffix (`ChatGPT A` for ~/.codex, `ChatGPT B` for ~/.codex-b).
+ */
+export function codexHomesOf(main: string, home: string, entries: { name: string; kind: string }[]): CodexHome[] {
+  const extras = entries
+    .filter(e => e.kind === 'dir' && EXTRA_HOME.test(e.name))
+    .map(e => `${home.replace(/[\\/]+$/, '')}/${e.name}`)
+    .filter(dir => normDir(dir) !== normDir(main))
+    .sort()
+  if (extras.length === 0) return [{ dir: main, id: 'chatgpt', name: 'ChatGPT' }]
+  const suffixOf = (dir: string) => EXTRA_HOME.exec(baseName(dir))?.[1]?.toLowerCase() ?? null
+  const mainSuffix = suffixOf(main) ?? 'a'
+  return [
+    { dir: main, id: 'chatgpt', name: `ChatGPT ${mainSuffix.toUpperCase()}` },
+    ...extras.map(dir => {
+      const s = suffixOf(dir)!
+      return { dir, id: `chatgpt-${s}`, name: `ChatGPT ${s.toUpperCase()}` }
+    }),
+  ]
+}
+
+/** The card of a Codex home that has no session with rate limits yet. */
+export function emptyCodexView(h: CodexHome, now: number): ProviderView {
+  return providerView({ id: h.id, name: h.name, source: 'Codex', readNote: 'no Codex session yet' }, null, [], null, false, now)
+}
+
 // Gemini through Antigravity: `agy -p /usage --output-format json` answers the slash command
 // without a model turn (no tokens) and lists groups of models, each with its own weekly bucket.
 // It is a request to Google with the CLI's own sign-in; register.tsx runs it every few minutes.
@@ -152,7 +187,8 @@ export function providerStatus(providers: ProviderView[]): string[] {
   return providers.map(p => {
     const top = p.windows.filter(w => w.pct !== null).sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))[0]
     // One Gemini per Google account: `Gemini G2 20%`; the label stays out of the status line.
-    const short = p.id === 'chatgpt' ? 'GPT' : p.id.startsWith('gemini-') ? `Gemini ${p.id.slice(7)}` : p.name
+    // One ChatGPT per Codex home: `GPT`, or `GPT A`, `GPT B` with several.
+    const short = p.id === 'chatgpt' || p.id.startsWith('chatgpt-') ? p.name.replace(/^ChatGPT/, 'GPT') : p.id.startsWith('gemini-') ? `Gemini ${p.id.slice(7)}` : p.name
     return top ? `${short} ${Math.round(top.pct!)}%${p.health === 'at-cap' ? ' cap' : ''}` : `${short} ?`
   })
 }

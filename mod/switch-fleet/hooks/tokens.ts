@@ -160,8 +160,27 @@ export function periodsOf(days: TokenDay[], now: number, offsetMin: number): Tok
   return out
 }
 
+const EXTRA_CODEX = /^\.codex-([a-z0-9]{1,12})$/i
+
+/**
+ * The card name of each Codex home, by its folder (the ledger's account for Codex): `ChatGPT`
+ * when there is one home, else `ChatGPT A` for the main one (or its own suffix) and `ChatGPT B`
+ * for ~/.codex-b, as providers.ts names the cards. The main home is the first codex source.
+ */
+export function codexNames(sources: TokenSource[]): Map<string, string> {
+  const homes = sources.filter(s => s.kind === 'codex').map(s => s.account)
+  if (homes.length <= 1) return new Map(homes.map(h => [h, 'ChatGPT']))
+  const suffix = (h: string) => EXTRA_CODEX.exec(h)?.[1]?.toUpperCase() ?? null
+  return new Map(homes.map((h, i) => [h, `ChatGPT ${suffix(h) ?? (i === 0 ? 'A' : h)}`]))
+}
+
 /** What the pane draws: per account (accounts.json's names, other config dirs, ChatGPT) and the total. */
 export function buildTokens(summary: TokenSummary, now: number, offsetMin: number): TokensView {
+  const codex = codexNames(summary.sources)
+  // A Codex home's rows go under its card's name; everything else keeps its account.
+  const days = summary.days.map(d => (codex.has(d.a) ? { ...d, a: codex.get(d.a)! } : d))
+  const sources = summary.sources.map(s => (s.kind === 'codex' ? { ...s, account: codex.get(s.account) ?? s.account } : s))
+  summary = { ...summary, days, sources }
   const names = [...new Set([...summary.sources.map(s => s.account), ...summary.days.map(d => d.a)])]
   const kindOf = new Map(summary.sources.map(s => [s.account, s.kind]))
   const firstDay = (rows: TokenDay[]) => rows.reduce<string | null>((min, d) => (min === null || d.d < min ? d.d : min), null)

@@ -47,7 +47,9 @@ function Update-TokenLedger {
         # Temp files a run cut short left behind (the lock says no run is writing them now).
         Get-ChildItem -LiteralPath $StateDir -Filter '*.tmp' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
         Get-ChildItem -LiteralPath (Split-Path -Parent $SummaryPath) -Filter "$(Split-Path -Leaf $SummaryPath).*.tmp" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-        $state = Read-TokenLedger -Path $ledgerPath
+        $mainCodex = @($Sources | Where-Object Kind -EQ 'codex' | Select-Object -First 1)
+        $alias = if ($mainCodex.Count) { @{ 'ChatGPT' = $mainCodex[0].Account } } else { @{} }
+        $state = Read-TokenLedger -Path $ledgerPath -AccountAlias $alias
         $files = Read-TokenFiles -Path $filesPath
         $clock = [Diagnostics.Stopwatch]::StartNew()
         $added = 0; $read = 0; $skipped = 0; $isPartial = $false; $sinceSave = 0
@@ -145,8 +147,16 @@ function Get-TokenSources {
         if (-not (Test-Path -LiteralPath (Join-Path $d.FullName 'projects') -PathType Container)) { continue }
         $sources.Add([pscustomobject]@{ Account = $d.Name; Kind = 'claude'; Dir = $d.FullName })
     }
+    # Codex: the main home (CODEX_HOME, else ~/.codex) first, then each ~/.codex-<name>, one
+    # ChatGPT account each. The ledger names a home by its folder, which never changes; the pane
+    # turns folders into card names (ChatGPT, or ChatGPT A, ChatGPT B with several).
     $codex = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
-    $sources.Add([pscustomobject]@{ Account = 'ChatGPT'; Kind = 'codex'; Dir = $codex })
+    $codex = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($codex))
+    $sources.Add([pscustomobject]@{ Account = (Split-Path -Leaf $codex); Kind = 'codex'; Dir = $codex })
+    $extras = Get-ChildItem -LiteralPath $HOME -Directory -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '\A\.codex-[A-Za-z0-9]{1,12}\z' -and -not (Test-SamePath $_.FullName $codex) } |
+        Sort-Object Name
+    foreach ($d in @($extras)) { $sources.Add([pscustomobject]@{ Account = $d.Name; Kind = 'codex'; Dir = $d.FullName }) }
     $sources
 }
 

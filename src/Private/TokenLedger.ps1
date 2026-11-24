@@ -42,7 +42,7 @@ function Add-TokenDay {
 
 function Read-TokenLedger {
     <# Rebuilds the state from ledger.tsv. Lines that do not parse (a torn last line) are skipped. #>
-    param([Parameter(Mandatory)] [string] $Path)
+    param([Parameter(Mandatory)] [string] $Path, [hashtable] $AccountAlias = @{})
     $state = New-TokenState
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $state }
     foreach ($line in [IO.File]::ReadLines($Path)) {
@@ -65,7 +65,8 @@ function Read-TokenLedger {
         } else {
             $state.Keys[$c[0]] = $v.Clone()
         }
-        Add-TokenDay $state $c[3] $c[1] $c[2] $v
+        $account = if ($AccountAlias.ContainsKey($c[1])) { $AccountAlias[$c[1]] } else { $c[1] }
+        Add-TokenDay $state $c[3] $account $c[2] $v
     }
     $state
 }

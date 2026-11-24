@@ -1,6 +1,6 @@
 // The Deck: the Fleet pane as the desktop app (and the editor) draws it, laid out like Flightdeck.
-// Account cards side by side with SVG gauges, a board of tasks (the hub's workers) ranked by
-// priority with their controls, the pipeline, and the live sessions. The terminal keeps the text pane.
+// Account cards side by side with SVG gauges, the pipeline, the live sessions, then the tasks (the
+// hub's workers) as one line each with their controls folded under a toggle. The terminal keeps the text pane.
 import type { Elements } from 'claude-code'
 
 import type { AccountView, DeckView, FleetView, Forecast, Meter, PipelineView, ProviderView, SessionView, TokenPeriods, WorkerView } from '../types'
@@ -18,6 +18,8 @@ export type DeckActions = {
   stop: (worker: string) => void
   setPriority: (worker: string, priority: string) => void
   toggleForm: () => void
+  /** Unfolds one task row's controls, or folds them when that row is already open. */
+  toggleTask: (worker: string) => void
   openWorker: (draft: WorkerDraft) => void
   dismissNote: () => void
 }
@@ -308,41 +310,41 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
 
   // ------------------------------------------------------------ tasks
 
-  const taskCard = (w: WorkerView, n: number, threshold: number, canAct: boolean) => {
+  /** One line per task; its controls unfold under it on demand (or while its stop waits for a second press). */
+  const taskRow = (w: WorkerView, n: number, threshold: number, canAct: boolean) => {
     const confirming = deck.confirmStop === w.name && deck.confirmAt !== null && t - deck.confirmAt < CONFIRM_MS
     const sent = drafts.sent[w.name] ?? 0
-    const prio = PRIORITY_STYLE[w.priority]
     const isOpen = isOpenTask(w)
+    const canControl = canAct && w.phase !== 'stopped'
+    const isUnfolded = canControl && (deck.openTask === w.name || confirming)
+    const meta = [w.account, phaseLabel(w, when), w.ctxPct !== null && isOpen ? `ctx ${Math.round(w.ctxPct)}%` : null, w.costUsd ? `$${w.costUsd.toFixed(2)}` : null, fmtSpan(t - w.since)]
+      .filter(Boolean)
+      .join(' · ')
     return (
-      <Box key={`lane-${w.name}`} flexDirection="column" borderStyle="round" borderColor={isOpen ? SECTION.tasks : C.faint} paddingX={1} width={HALF} flexGrow={1}>
+      <Box key={`lane-${w.name}`} flexDirection="column">
         <Box justifyContent="space-between" columnGap={1}>
-          <Text bold wrap="truncate">
+          <Text wrap="truncate">
+            <Text color={PHASE_COLOR[w.phase]}>{PHASE_MARK[w.phase]}</Text>
             <Text color={C.dim}>{` ${n} `}</Text>
             <Text color={isOpen ? C.text : C.dim}>{w.title ?? w.name}</Text>
+            <Text color={C.dim}>{`  ${meta}`}</Text>
           </Text>
-          <Text color={prio.color}>{prio.mark}</Text>
-        </Box>
-        <Text color={C.dim} wrap="truncate">
-          {[w.name, `account ${w.account}`, w.model, w.effort, `gen ${w.generation}`].filter(Boolean).join(' · ')}
-        </Text>
-        {w.ctxPct !== null && isOpen ? (
-          <Box columnGap={1} alignItems="center">
-            <Svg source={contextSvg(w.ctxPct, threshold, 140, 6)} alt={`context ${Math.round(w.ctxPct)}%, hand-over at ${threshold}%`} />
-            <Text color={C.dim}>ctx {Math.round(w.ctxPct)}%</Text>
+          <Box columnGap={1} flexShrink={0}>
+            <Text color={PRIORITY_STYLE[w.priority].color}>{PRIORITY_MARK[w.priority]}</Text>
+            {canControl ? <Button key={`fold-${w.name}`} plain label={isUnfolded ? '▾' : '▸'} onPress={() => act.toggleTask(w.name)} /> : null}
           </Box>
-        ) : null}
-        <Text color={PHASE_COLOR[w.phase]} wrap="truncate">
-          {PHASE_MARK[w.phase]} {phaseLabel(w, when)}
-          <Text color={C.dim}>{`  ${fmtSpan(t - w.since)}`}</Text>
-          <Text color={C.dim}>{w.costUsd ? `  $${w.costUsd.toFixed(2)}` : ''}</Text>
-        </Text>
-        {w.lastReply ? (
-          <Text color={C.faint} wrap="truncate">
-            “{w.lastReply}”
-          </Text>
-        ) : null}
-        {canAct && w.phase !== 'stopped' ? (
-          <Box flexDirection="column">
+        </Box>
+        {isUnfolded ? (
+          <Box flexDirection="column" paddingLeft={2}>
+            <Text color={C.dim} wrap="truncate">
+              {[w.name, w.model, w.effort, `gen ${w.generation}`].filter(Boolean).join(' · ')}
+            </Text>
+            {w.ctxPct !== null && isOpen ? <Svg source={contextSvg(w.ctxPct, threshold, 140, 6)} alt={`context ${Math.round(w.ctxPct)}%, hand-over at ${threshold}%`} /> : null}
+            {w.lastReply ? (
+              <Text color={C.faint} wrap="truncate">
+                “{w.lastReply}”
+              </Text>
+            ) : null}
             <Input
               // A new key after each send draws an empty field, whatever the field kept.
               key={sent ? `msg-${w.name}-${sent}` : `msg-${w.name}`}
@@ -403,23 +405,29 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
   const tasksSection = () => {
     if (!hub) return null
     if (!hub.isHub && hub.workers.length === 0) return null
-    const open = hub.workers.filter(isOpenTask).length
+    const numbered = hub.workers.map((w, i) => ({ w, n: i + 1 }))
+    const open = numbered.filter(x => isOpenTask(x.w))
+    const closed = numbered.filter(x => !isOpenTask(x.w))
     const workAccounts = view.accounts.map(a => a.name).filter(n => n.toLowerCase() !== hub.hubAccount.toLowerCase())
     return (
-      <Box key="tasks" flexDirection="column" rowGap={0}>
+      <Box key="tasks" flexDirection="column" borderStyle="round" borderColor={SECTION.tasks} paddingX={1}>
         <Box justifyContent="space-between" columnGap={1}>
           <Text bold>
             <Text color={SECTION.tasks}>tasks</Text>
-            <Text color={C.dim}>{` · ${open} open · ${hub.workers.length} total`}</Text>
+            <Text color={C.dim}>{` · ${open.length} open · ${hub.workers.length} total`}</Text>
+            {hub.isHub ? null : <Text color={C.faint}>{` · controls in ${hub.hubAccount}`}</Text>}
           </Text>
-          {hub.isHub && !deck.isFormOpen ? <Button key="nw-toggle" plain label="+ new task" onPress={act.toggleForm} /> : null}
+          {hub.isHub && !deck.isFormOpen ? <Button key="nw-toggle" plain label="+ new" onPress={act.toggleForm} /> : null}
         </Box>
-        {hub.isHub ? null : <Text color={C.dim}>The controls are in the sessions of account {hub.hubAccount}.</Text>}
         {hub.isHub && deck.isFormOpen ? form(workAccounts) : null}
-        {hub.workers.length === 0 && hub.isHub ? <Text color={C.faint}>No tasks. Open one with “+ new task” or ask the hub in the chat.</Text> : null}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={1} rowGap={1}>
-          {hub.workers.map((w, i) => taskCard(w, i + 1, hub.rolloverPercent, hub.isHub))}
-        </Box>
+        {hub.workers.length === 0 && hub.isHub ? <Text color={C.faint}>No tasks. “+ new” or ask the hub in the chat.</Text> : null}
+        {open.map(x => taskRow(x.w, x.n, hub.rolloverPercent, hub.isHub))}
+        {/* Finished, stopped and gone tasks fold into one line. */}
+        {closed.length > 0 ? (
+          <Text color={C.faint} wrap="truncate">
+            {`${closed.length} closed: ${closed.map(x => `${PHASE_MARK[x.w.phase]} ${x.w.title ?? x.w.name}`).join(', ')}`}
+          </Text>
+        ) : null}
       </Box>
     )
   }
@@ -507,10 +515,9 @@ export function renderDeck(els: DeckElements, view: FleetView | null, deck: Deck
       </Box>
       {tokensCard()}
       {rule('rule-1')}
-      {tasksSection()}
       {view.pipeline ? pipeline(view.pipeline) : null}
-      {rule('rule-2')}
       {sessionsSection()}
+      {tasksSection()}
     </Box>
   )
 }

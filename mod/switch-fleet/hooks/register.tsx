@@ -18,7 +18,7 @@ import type { DeckActions, DeckElements, WorkerDraft } from './deck'
 import { buildWorkers } from './deck-view'
 import { hubTick, hubToolCall, isHub, registerHubTools, setWorkerPriority } from './hub'
 import { directorNote, parseWorker, WORKER_NAME } from './hub-core'
-import { newestFirst, parseCodexRollout, providerAlerts, providerStatus } from './providers'
+import { codexHomesOf, emptyCodexView, newestFirst, parseCodexRollout, providerAlerts, providerStatus, type CodexHome } from './providers'
 import { maybeAskGemini, readGemini } from './gemini'
 import type { WorkerRecord } from './hub-core'
 import type { HubTool } from './hub'
@@ -97,7 +97,10 @@ async function raiseAlerts($: EngineInterface, accounts: AccountView[], provider
 const CODEX_LIST_MS = 60_000
 /** Rollout files tried, newest first, for one with rate limits (a session with no turn has none). */
 const CODEX_TRIES = 6
-const codex: { listedAt: number; files: string[]; path: string | null; mtime: number; view: ProviderView | null } = { listedAt: 0, files: [], path: null, mtime: 0, view: null }
+type CodexCache = { listedAt: number; files: string[]; path: string | null; mtime: number; view: ProviderView | null }
+/** One cache per Codex home (one ChatGPT account each). */
+const codexCaches = new Map<string, CodexCache>()
+const codexHomesSeen: { at: number; homes: CodexHome[] } = { at: 0, homes: [] }
 
 /** The newest rollout files under <codexHome>/sessions/YYYY/MM/DD, newest first. */
 async function listCodexRollouts($: EngineInterface, root: string): Promise<string[]> {
@@ -115,27 +118,50 @@ async function listCodexRollouts($: EngineInterface, root: string): Promise<stri
   return out
 }
 
-/** ChatGPT's rate limits from the newest Codex session that has them; nothing when Codex is not there. */
-async function readCodex($: EngineInterface, now: number): Promise<ProviderView[]> {
+/** Every Codex home: the main one, then each `~/.codex-<name>` folder (one ChatGPT account each). */
+async function codexHomes($: EngineInterface, now: number): Promise<CodexHome[]> {
   if (!S.paths) return []
-  if (now - codex.listedAt > CODEX_LIST_MS) {
-    codex.listedAt = now
-    codex.files = await listCodexRollouts($, `${S.paths.codexHome}/sessions`)
+  if (now - codexHomesSeen.at > CODEX_LIST_MS) {
+    const home = S.paths.defaultConfigDir.replace(/[\\/]\.claude$/, '')
+    const entries = await $.fs.list(home).catch(() => [])
+    codexHomesSeen.at = now
+    codexHomesSeen.homes = codexHomesOf(S.paths.codexHome, home, entries)
   }
-  for (const path of codex.files) {
+  return codexHomesSeen.homes
+}
+
+/** One account's rate limits from the newest Codex session that has them. */
+async function readCodexHome($: EngineInterface, h: CodexHome, now: number): Promise<ProviderView | null> {
+  const cache = codexCaches.get(h.dir) ?? { listedAt: 0, files: [], path: null, mtime: 0, view: null }
+  codexCaches.set(h.dir, cache)
+  if (now - cache.listedAt > CODEX_LIST_MS) {
+    cache.listedAt = now
+    cache.files = await listCodexRollouts($, `${h.dir}/sessions`)
+  }
+  for (const path of cache.files) {
     const stat = await $.fs.stat(path).catch(() => null)
     if (!stat || stat.kind !== 'file') continue
-    if (path === codex.path && stat.mtimeMs === codex.mtime && codex.view) return [codex.view]
+    if (path === cache.path && stat.mtimeMs === cache.mtime && cache.view) return { ...cache.view, id: h.id, name: h.name }
     const text = await $.fs.read(path).then(String, () => null)
     const view = text ? parseCodexRollout(text, now) : null
     if (view) {
-      codex.path = path
-      codex.mtime = stat.mtimeMs
-      codex.view = view
-      return [view]
+      cache.path = path
+      cache.mtime = stat.mtimeMs
+      cache.view = view
+      return { ...view, id: h.id, name: h.name }
     }
   }
-  return []
+  return null
+}
+
+/**
+ * ChatGPT's rate limits, one card per Codex home. With several homes a home without readings still
+ * gets a card (no data), so an account that was never used shows up; a lone home without any shows none.
+ */
+async function readCodex($: EngineInterface, now: number): Promise<ProviderView[]> {
+  const homes = await codexHomes($, now)
+  const views = await Promise.all(homes.map(async h => (await readCodexHome($, h, now).catch(() => null)) ?? (homes.length > 1 ? emptyCodexView(h, now) : null)))
+  return views.filter((v): v is ProviderView => v !== null)
 }
 
 /** How old tokens.json may get before a session counts again, and how long a started count holds others off. */
@@ -319,6 +345,10 @@ function deckActions($: EngineInterface): DeckActions {
       run(async () => {
         const answer = await deckHub($, 'fleet_stop_worker', { worker })
         await deckNote($, answer, !/^Worker \S+: will stop/.test(answer))
+      }),
+    toggleTask: (worker: string) =>
+      run(async () => {
+        await update($, deck, d => ({ ...(d ?? EMPTY_DECK), openTask: (d ?? EMPTY_DECK).openTask === worker ? null : worker }))
       }),
     toggleForm: () =>
       run(async () => {
