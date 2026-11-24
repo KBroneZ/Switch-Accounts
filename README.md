@@ -483,6 +483,46 @@ session starts.
 ./scripts/usage-report.ps1 -Json
 ```
 
+### Token counts
+
+Under each account's gauges the pane shows that account's tokens for today, this week (from
+Monday), this month and all time, broken down into input, output, cache writes and cache reads
+(cache reads are usually most of the total, so one number would mislead), and what they would
+cost at API prices. The ChatGPT card shows Codex's tokens the same way, and a **TOKENS** box adds
+up every account, any config dir `accounts.json` no longer lists (shown by its folder name) and
+ChatGPT. The dollars are for comparison only: the accounts are subscriptions.
+
+`scripts/token-ledger.ps1` (installed with the switch-account skill) does the counting, and one
+pane runs it every 10 minutes:
+
+- Claude: every assistant message in `<configDir>/projects/**/*.jsonl`, subagents included,
+  counted once by message id and request id. A message is written several times while it
+  streams and resumed sessions copy earlier ones; a message that grew adds only the difference.
+- Codex: each session's cumulative totals in `~/.codex/sessions` (`CODEX_HOME` honoured): the
+  last value, not the sum of every event. Codex counts cached input inside its input, so the
+  table's input is the uncached part. Compressed sessions (`.jsonl.zst`) are read through Node
+  22.15 or later when it is on `PATH`; without it they are skipped and the box says so.
+- Gemini reports only quota fractions, no tokens, so it is not counted.
+
+Every count lands in `~/.claude-switch/tokens/ledger.tsv`, which is only ever appended to: a
+transcript Claude Code deletes later never lowers a total. Files are read from where the last run
+stopped (`tokens/files.json` keeps the offsets), so a run after the first takes seconds; the
+first one reads everything there is (about 3 GB took 45 seconds here) and, if it runs out of
+time, goes on in the next run. No message text is kept: the ledger holds ids, account, model,
+local day and the five counts; `files.json` holds each transcript's path, size and read offset.
+Links inside `projects` are not followed, a line over 8 MB (a pasted image) is skipped, and a
+count above a trillion is taken as a broken line. `~/.claude-switch/tokens.json` is the per-day summary the pane
+draws.
+
+Prices are one table in `mod/switch-fleet/hooks/tokens.ts` with its sources and the date they
+were read: Anthropic's pricing page (fast mode and Haiku 5.5's long prompts priced apart) and
+OpenAI's for the Codex models. A model with no price shows `$?` (or `+?` when part of a figure
+is unpriced) and is named under the box, never counted as $0.
+
+```powershell
+./scripts/token-ledger.ps1 -MaxSeconds 900   # count now, by hand
+```
+
 ### The `switch-account` skill
 
 `skills/switch-account/SKILL.md` is the single source of the Claude Code skill. If you do not say

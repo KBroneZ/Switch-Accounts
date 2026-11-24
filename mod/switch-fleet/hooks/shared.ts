@@ -63,6 +63,9 @@ export type Paths = {
   agyLog: string
   agy: string
   script: string
+  /** token-ledger.ps1's per-day token totals, and the time a session last started it. */
+  tokens: string
+  tokensLock: string
 }
 
 export async function pathsOf($: EngineInterface, cfg: Config): Promise<Paths> {
@@ -87,6 +90,8 @@ export async function pathsOf($: EngineInterface, cfg: Config): Promise<Paths> {
     agyLog: `${dir}/agy-usage.log`,
     agy: cfg.agyPath || `${(await $.env.get('LOCALAPPDATA')) || `${home}/AppData/Local`}/agy/bin/agy.exe`,
     script: cfg.scriptPath || `${home}/.claude/skills/switch-account/scripts/open-session.ps1`,
+    tokens: `${dir}/tokens.json`,
+    tokensLock: `${dir}/tokens.lock`,
   }
 }
 
@@ -108,6 +113,10 @@ export const S: {
   account: string | null
   /** Successors this hub session opened, by worker, so a tick never opens two. */
   opening: Set<string>
+  /** token-ledger.ps1 is running from this session. */
+  isCountingTokens: boolean
+  /** Why the last token count did not run or failed. */
+  tokensError: string | null
 } = {
   cfg: parseConfig({}),
   paths: null,
@@ -122,6 +131,8 @@ export const S: {
   historyMtime: -1,
   account: null,
   opening: new Set(),
+  isCountingTokens: false,
+  tokensError: null,
 }
 
 export async function writeBeat($: EngineInterface) {
@@ -150,6 +161,12 @@ export async function readUsage($: EngineInterface): Promise<Partial<Beat>> {
     costUsd: u.cost?.usd ?? null,
     ...(limits ? { limits, limitsAt: await $.clock.now() } : {}),
   }
+}
+
+/** A script installed beside open-session.ps1 (the switch-account skill's scripts folder), by its fixed name. */
+export function siblingScript(script: string, name: string): string | null {
+  const folder = script.replace(/[\\/][^\\/]*$/, '')
+  return folder === script ? null : `${folder}/${name}`
 }
 
 /** Runs the switch-account script with arguments; never a shell. */

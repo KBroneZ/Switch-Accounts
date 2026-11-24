@@ -4,14 +4,31 @@ BeforeAll {
     $pwshPath = (Get-Process -Id $PID).Path
     $script:TestKey = 'test-key-not-a-real-one-123'
 
+    function Get-FreePort {
+        # The system hands out a port no one holds. A random pick can land in a range Windows
+        # reserves (the CI runners reserve some 49xxx ports), where the server cannot listen.
+        $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $l.Start()
+        try { $l.LocalEndpoint.Port } finally { $l.Stop() }
+    }
+
     function Start-FakeQwen {
-        $port = Get-Random -Minimum 20000 -Maximum 60000
-        $proc = Start-Process -FilePath $pwshPath -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-File', $serverScript, '-Port', $port, '-ExpectedKey', $script:TestKey)
-        $deadline = [DateTime]::UtcNow.AddSeconds(15)
-        while ([DateTime]::UtcNow -lt $deadline) {
-            try { $c = [Net.Sockets.TcpClient]::new('127.0.0.1', $port); $c.Dispose(); break } catch { Start-Sleep -Milliseconds 200 }
+        # -WindowStyle exists only on Windows; elsewhere Start-Process opens no window anyway.
+        $hidden = if ($IsWindows) { @{ WindowStyle = 'Hidden' } } else { @{} }
+        for ($try = 1; $try -le 3; $try++) {
+            $port = Get-FreePort
+            $proc = Start-Process -FilePath $pwshPath -PassThru @hidden -ArgumentList @('-NoProfile', '-File', $serverScript, '-Port', $port, '-ExpectedKey', $script:TestKey)
+            $deadline = [DateTime]::UtcNow.AddSeconds(20)
+            while ([DateTime]::UtcNow -lt $deadline -and -not $proc.HasExited) {
+                try {
+                    $c = [Net.Sockets.TcpClient]::new('127.0.0.1', $port)
+                    $c.Dispose()
+                    return [pscustomobject]@{ Port = $port; Process = $proc; Url = "http://127.0.0.1:$port" }
+                } catch { Start-Sleep -Milliseconds 200 }
+            }
+            if (-not $proc.HasExited) { $proc.Kill() }
         }
-        [pscustomobject]@{ Port = $port; Process = $proc; Url = "http://127.0.0.1:$port" }
+        throw 'The fake Qwen server did not start listening after 3 tries.'
     }
 
     function Invoke-AskQwen {

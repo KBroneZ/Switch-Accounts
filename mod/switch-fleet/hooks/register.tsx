@@ -9,7 +9,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AccountView, Beat, DeckView, FleetView, HubView, Meter, PipelineView, ProviderView, SessionView } from '../types'
+import type { AccountView, Beat, DeckView, FleetView, HubView, Meter, PipelineView, ProviderView, SessionView, TokenPeriods, TokensView } from '../types'
 import { alertsFor, buildFleet, parsePipeline, fmtSpan, fmtWhen, forecastText, gauge, healthChanges, maskSecrets, normPath, parseBeat, parseSnapshot, shorten, statusText, toolDetail } from './core'
 import { parseHistory } from './forecast'
 import type { History } from './forecast'
@@ -22,7 +22,9 @@ import { codexHomesOf, emptyCodexView, newestFirst, parseCodexRollout, providerA
 import { maybeAskGemini, readGemini } from './gemini'
 import type { WorkerRecord } from './hub-core'
 import type { HubTool } from './hub'
-import { parseConfig, pathsOf, readUsage, S, setBeat, writeBeat } from './shared'
+import { parseConfig, pathsOf, readUsage, S, setBeat, siblingScript, writeBeat } from './shared'
+import { buildTokens, fmtTokens, fmtUsd, otherTokenAccounts, parseTokens, plainText, sinceText, tokenLines, tokensFooter, tokensOf } from './tokens'
+import type { TokenSummary } from './tokens'
 import { carryOver, workerName, workerTick, workerTurnDone } from './worker'
 
 const PANE = 'switch-fleet'
@@ -162,6 +164,56 @@ async function readCodex($: EngineInterface, now: number): Promise<ProviderView[
   return views.filter((v): v is ProviderView => v !== null)
 }
 
+/** How old tokens.json may get before a session counts again, and how long a started count holds others off. */
+const TOKENS_EVERY_MS = 10 * 60_000
+const TOKENS_LOCK_MS = 11 * 60_000
+/** A count stops itself before this and goes on next time; the first one may take a few runs. */
+const TOKENS_RUN_SECONDS = 420
+const TOKENS_TIMEOUT_MS = 600_000
+const tokenCache: { mtime: number; summary: TokenSummary | null } = { mtime: -1, summary: null }
+
+/** tokens.json summed for now, read again only when it changed. */
+async function readTokens($: EngineInterface, t: number): Promise<TokensView | null> {
+  if (!S.paths) return null
+  const stat = await $.fs.stat(S.paths.tokens).catch(() => null)
+  if (!stat) return null
+  if (stat.mtimeMs !== tokenCache.mtime) {
+    const text = await $.fs.read(S.paths.tokens).then(String, () => null)
+    const summary = text ? parseTokens(text) : null
+    if (summary) {
+      tokenCache.summary = summary
+      tokenCache.mtime = stat.mtimeMs
+    }
+  }
+  return tokenCache.summary ? buildTokens(tokenCache.summary, t, new Date(t).getTimezoneOffset()) : null
+}
+
+/** Runs token-ledger.ps1 when tokens.json is older than ten minutes; one session at a time. */
+async function maybeCountTokens($: EngineInterface) {
+  if (!S.paths || S.isCountingTokens) return
+  const t = await $.clock.now()
+  const stat = await $.fs.stat(S.paths.tokens).catch(() => null)
+  if (stat && t - stat.mtimeMs < TOKENS_EVERY_MS) return
+  const lock = await $.fs.read(S.paths.tokensLock).then(s => Number(String(s)), () => 0)
+  if (lock && t - lock < TOKENS_LOCK_MS) return
+  const script = siblingScript(S.paths.script, 'token-ledger.ps1')
+  if (!script || !(await $.fs.exists(script))) {
+    S.tokensError = `Cannot find ${script ?? 'token-ledger.ps1'}. Reinstall the switch-account skill.`
+    return
+  }
+  S.isCountingTokens = true
+  try {
+    await $.fs.write(S.paths.tokensLock, String(t))
+    const r = await $.process.run(['pwsh', '-NoProfile', '-NonInteractive', '-File', script, '-MaxSeconds', String(TOKENS_RUN_SECONDS)], { timeoutMs: TOKENS_TIMEOUT_MS })
+    S.tokensError = r.exitCode === 0 ? null : plainText(maskSecrets(`token count failed (${r.exitCode}): ${(r.stderr || r.stdout).trim()}`))
+  } catch (err) {
+    S.tokensError = plainText(maskSecrets(`token count did not run: ${String(err)}`))
+  } finally {
+    S.isCountingTokens = false
+  }
+  await rebuild($)
+}
+
 async function rebuild($: EngineInterface) {
   if (!S.paths) return
   const [text, beats, history, pipelineText, workers, t] = await Promise.all([
@@ -189,7 +241,9 @@ async function rebuild($: EngineInterface) {
   }
   const none = () => [] as ProviderView[]
   const providers = (await Promise.all([readCodex($, t).catch(none), readGemini($, t).catch(none)])).flat()
-  const view: FleetView = { ...built, providers, hub, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
+  const tokens = await readTokens($, t).catch(() => null)
+  const tokensNote = S.tokensError ?? (S.isCountingTokens && !tokens?.isComplete ? 'counting every transcript; the first count can take a few minutes' : null)
+  const view: FleetView = { ...built, providers, tokens, tokensNote, hub, pipeline, isRefreshing: S.isRefreshing, error: S.lastError }
   // Redraw only when something a reader sees changed (builtAt alone does not count).
   const same = before && JSON.stringify({ ...before, builtAt: 0 }) === JSON.stringify({ ...view, builtAt: 0 })
   if (!same) await update($, fleet, () => view)
@@ -357,9 +411,8 @@ async function openSessionOn($: EngineInterface, account: string) {
 async function usageReport($: EngineInterface): Promise<string> {
   if (!S.paths) return 'Fleet has not started yet.'
   // The sibling of the configured script by folder and a fixed name, never the script itself.
-  const folder = S.paths.script.replace(/[\\/][^\\/]*$/, '')
-  const script = `${folder}/usage-report.ps1`
-  if (folder === S.paths.script || !(await $.fs.exists(script))) return `Cannot find ${script}. Reinstall the switch-account skill.`
+  const script = siblingScript(S.paths.script, 'usage-report.ps1')
+  if (!script || !(await $.fs.exists(script))) return `Cannot find ${script ?? 'usage-report.ps1'}. Reinstall the switch-account skill.`
   const r = await $.process.run(['pwsh', '-NoProfile', '-NonInteractive', '-File', script], { timeoutMs: 60_000 })
   const out = (r.exitCode === 0 ? r.stdout : r.stderr || r.stdout).trim()
   const fence = '```'
@@ -437,11 +490,13 @@ export const register: Register = (on, options) => {
       S.hasTimers = true
       $.clock.every(POLL_MS, () => void tick($).catch(err => noteError(err)))
       $.clock.every(60_000, () => void maybeRefresh($, false).catch(err => noteError(err)))
+      $.clock.every(60_000, () => void maybeCountTokens($).catch(err => noteError(err)))
     }
     // An open that was in flight when the module last stopped is not running any more.
     await update($, deck, d => ({ ...(d ?? EMPTY_DECK), busy: null, confirmStop: null, confirmAt: null })).catch(err => noteError(err))
     await rebuild($).catch(err => noteError(err))
     void maybeRefresh($, false).catch(err => noteError(err))
+    void maybeCountTokens($).catch(err => noteError(err))
     // Under the REPL the terminal is there at start. The desktop app and the editor run the
     // session through the SDK and attach later, so those open at the first turn.
     if (e.isInteractive) await openOnStart($)
@@ -624,6 +679,68 @@ export const register: Register = (on, options) => {
       )
     }
 
+    const tokenTable = (p: TokenPeriods | undefined) => {
+      if (!p) return null
+      const [head, ...rows] = tokenLines(p)
+      return (
+        <Box flexDirection="column">
+          <Text color={C.dim} wrap="truncate">
+            {head}
+          </Text>
+          {rows.map(r => (
+            <Text color={C.text} wrap="truncate">
+              {r}
+            </Text>
+          ))}
+        </Box>
+      )
+    }
+
+    const tokensBox = (v: TokensView | null | undefined) => {
+      const inner = W - 4
+      if (!v) {
+        return (
+          <Box key="tokens" flexDirection="column" borderStyle="round" borderColor={C.faint} paddingX={1} width={W}>
+            <Text color={C.main} bold>
+              TOKENS
+            </Text>
+            <Text color={view.tokensNote ? C.warn : C.dim} wrap="wrap">
+              {view.tokensNote ?? 'not counted yet (token-ledger.ps1)'}
+            </Text>
+          </Box>
+        )
+      }
+      const others = otherTokenAccounts(v, view)
+      return (
+        <Box key="tokens" flexDirection="column" borderStyle="round" borderColor={C.main} paddingX={1} width={W}>
+          <Box justifyContent="space-between" width={inner}>
+            <Text bold wrap="truncate">
+              <Text color={C.main}>TOKENS</Text>
+              <Text color={C.dim}>{' · all accounts + ChatGPT'}</Text>
+            </Text>
+            <Box flexShrink={0}>
+              <Text color={C.dim}>{sinceText(v.since)}</Text>
+            </Box>
+          </Box>
+          {tokenTable(v.total)}
+          {others.map(a => (
+            <Text key={`tok-${a.name}`} color={C.dim} wrap="truncate">
+              {`  incl. ${a.name}: all ${fmtTokens(a.periods.all.total)} · ${fmtUsd(a.periods.all)}`}
+            </Text>
+          ))}
+          <Text color={C.faint} wrap="truncate">
+            {tokensFooter(v, t)}
+          </Text>
+          {v.unknownModels.length ? <Text color={C.warn} wrap="truncate">{`no price: ${v.unknownModels.join(', ')}`}</Text> : null}
+          {[...v.notes, ...(view.tokensNote ? [view.tokensNote] : [])].map(n => (
+            <Text color={C.warn} wrap="wrap">
+              {n}
+            </Text>
+          ))}
+        </Box>
+      )
+    }
+
     const sessionRow = (s: SessionView, inner: number) => {
       const isWorking = s.state === 'working'
       const dot = s.liveness === 'quiet' ? '◌' : isWorking ? '●' : s.state === 'ended' ? '✕' : '○'
@@ -724,6 +841,7 @@ export const register: Register = (on, options) => {
             )
           })}
           <Text color={p.isStale ? C.warn : C.faint}>{p.readAt ? `read ${fmtSpan(t - p.readAt)} ago (${p.readNote})` : 'no read time'}</Text>
+          {tokenTable(tokensOf(view.tokens, p.name)?.periods)}
         </Box>
       )
     }
@@ -754,6 +872,7 @@ export const register: Register = (on, options) => {
               {forecastRow(a.fiveHourForecast)}
               {meterRow('wk', a.weekly, inner)}
               {forecastRow(a.weeklyForecast)}
+              {tokenTable(tokensOf(view.tokens, a.name)?.periods)}
               {days !== null && days < 7 ? (
                 <Text color={days < 2 ? C.bad : C.warn}>login expires in {fmtSpan(Date.parse(a.loginExpiresAt!) - t)}</Text>
               ) : null}
@@ -798,6 +917,7 @@ export const register: Register = (on, options) => {
         {view.pipeline ? pipelineBox(view.pipeline) : null}
         {view.accounts.map(card)}
         {(view.providers ?? []).map(providerBox)}
+        {tokensBox(view.tokens)}
       </Box>
     )
   })
