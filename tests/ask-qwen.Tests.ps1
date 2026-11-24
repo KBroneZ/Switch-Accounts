@@ -6,7 +6,9 @@ BeforeAll {
 
     function Start-FakeQwen {
         $port = Get-Random -Minimum 20000 -Maximum 60000
-        $proc = Start-Process -FilePath $pwshPath -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-File', $serverScript, '-Port', $port, '-ExpectedKey', $script:TestKey)
+        # -WindowStyle exists only on Windows; elsewhere Start-Process opens no window anyway.
+        $hidden = if ($IsWindows) { @{ WindowStyle = 'Hidden' } } else { @{} }
+        $proc = Start-Process -FilePath $pwshPath -PassThru @hidden -ArgumentList @('-NoProfile', '-File', $serverScript, '-Port', $port, '-ExpectedKey', $script:TestKey)
         $deadline = [DateTime]::UtcNow.AddSeconds(15)
         while ([DateTime]::UtcNow -lt $deadline) {
             try { $c = [Net.Sockets.TcpClient]::new('127.0.0.1', $port); $c.Dispose(); break } catch { Start-Sleep -Milliseconds 200 }
