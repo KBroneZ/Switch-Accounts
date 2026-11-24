@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { DeckView, FleetView, ProviderView } from '../types'
 import { buildFleet, parseSnapshot } from '../hooks/core'
-import { newestFirst, parseAgyUsage, parseCodexRollout, providerAlerts, providerLines, providerStatus, STALE_MS, windowLabel } from '../hooks/providers'
+import { codexHomesOf, emptyCodexView, newestFirst, parseAgyUsage, parseCodexRollout, providerAlerts, providerLines, providerStatus, STALE_MS, windowLabel } from '../hooks/providers'
 
 const NOW = Date.parse('2030-01-10T12:00:00Z')
 const RESET = Math.round(Date.parse('2030-01-25T16:18:25Z') / 1000)
@@ -154,6 +154,35 @@ describe('antigravity usage', () => {
     expect(providerStatus([p])).toEqual(['Gemini 96%'])
     const alerts = providerAlerts([p], NOW, () => '15 Jan')
     expect(alerts.map(a => a.text)).toEqual(['Gemini: 96% used in the Claude/GPT 7d window; resets 15 Jan'])
+  })
+})
+
+describe('several ChatGPT accounts', () => {
+  const dir = (name: string) => ({ name, kind: 'dir' })
+  test('one Codex home keeps the plain name', () => {
+    expect(codexHomesOf('C:/Users/u/.codex', 'C:/Users/u', [dir('.codex'), dir('.claude')])).toEqual([{ dir: 'C:/Users/u/.codex', id: 'chatgpt', name: 'ChatGPT' }])
+  })
+
+  test('each ~/.codex-<name> folder is another account, named by its suffix', () => {
+    const homes = codexHomesOf('C:/Users/u/.codex', 'C:/Users/u', [dir('.codex'), dir('.codex-b'), dir('.codex-work'), { name: '.codex-c', kind: 'file' }, dir('.codex-bad name')])
+    expect(homes.map(h => [h.id, h.name])).toEqual([
+      ['chatgpt', 'ChatGPT A'],
+      ['chatgpt-b', 'ChatGPT B'],
+      ['chatgpt-work', 'ChatGPT WORK'],
+    ])
+  })
+
+  test('CODEX_HOME pointing at one of the extra folders is not read twice', () => {
+    const homes = codexHomesOf(String.raw`C:\Users\u\.codex-b`, 'C:/Users/u', [dir('.codex-b'), dir('.codex-c')])
+    expect(homes.map(h => h.name)).toEqual(['ChatGPT B', 'ChatGPT C'])
+  })
+
+  test('status line and empty card name the account', () => {
+    const view = parseCodexRollout(event({ ...goPlan, primary: { ...goPlan.primary, used_percent: 40 } }), NOW)!
+    expect(providerStatus([{ ...view, id: 'chatgpt-b', name: 'ChatGPT B' }])).toEqual(['GPT B 40%'])
+    const empty = emptyCodexView({ dir: 'x', id: 'chatgpt-b', name: 'ChatGPT B' }, NOW)
+    expect(empty.health).toBe('unknown')
+    expect(providerStatus([empty])).toEqual(['GPT B ?'])
   })
 })
 

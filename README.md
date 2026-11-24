@@ -305,6 +305,13 @@ no credentials and makes no request; the numbers are as fresh as your last Codex
 marked stale after 6 hours. The status line adds `GPT 99%`, and a window at 90 % or at its limit
 is toasted once.
 
+Several ChatGPT accounts: give each extra one its own Codex home, `~/.codex-<name>` (letters and
+digits, up to 12), and sign in there with `$env:CODEX_HOME = "$HOME\.codex-b"; codex login`.
+Fleet finds those folders by itself and draws one card per account (`ChatGPT A` for `~/.codex`,
+`ChatGPT B` for `~/.codex-b`), with `GPT A 40%` and `GPT B 12%` in the status line. An account
+with no Codex session yet shows `no data` until its first turn. Sessions run with `--ephemeral`
+write no session file, so they never update the card.
+
 ### Gemini in Fleet
 
 With Antigravity's CLI installed (`agy`, at `%LOCALAPPDATA%\agy\bin\agy.exe`, or set `agyPath`)
@@ -447,19 +454,20 @@ expiry, at exit 4 or on a 401/403 the director uses the next option. Web researc
 
 In the Claude Code desktop app (and the editor extension) `/fleet` draws the **Deck** instead of
 the text pane; the terminal keeps the text pane. It is laid out like Flightdeck: a title with a
-legend (accounts, tasks, sessions), account cards side by side, the task board, the pipeline and
-the live sessions. With `openOnStart` on it opens as a tab beside the conversation when a
+legend (accounts, tasks, sessions), account cards side by side, the pipeline, the live sessions
+and, under them, the tasks. With `openOnStart` on it opens as a tab beside the conversation when a
 session starts.
 
 - **Accounts:** a card per account with SVG bars for the 5-hour and weekly windows: the use so
   far, a fainter stretch to where the recent pace takes it by the reset, and a tick at the cap.
   Login, plan, reset times, the forecast line and the open-session button stay as they were.
-- **Tasks:** each hub worker is a task card, titled by the first line of its brief and ranked
+- **Tasks:** each open hub worker is one line, titled by the first line of its brief and ranked
   open first, then by priority (`high`, `medium`, `low`; the older `alta`, `media`, `baja` are still accepted; set when the worker opens, with the
-  `priority` field of `fleet_open_worker` or the form, and changed from the card). A card shows
-  the worker, account, model, hand-over generation, phase (working with its tool, waiting for its
-  account's reset, writing its hand-over, successor pending, finished, stopped), a context bar
-  with a tick at `rolloverPercent` and its last answer.
+  `priority` field of `fleet_open_worker` or the form, and changed from the row). The line shows
+  its phase mark, account, phase (working with its tool, waiting for its account's reset, writing
+  its hand-over, successor pending), context, cost, age and priority mark. `▸` unfolds the worker,
+  model, hand-over generation, a context bar with a tick at `rolloverPercent`, its last answer and
+  the controls. Finished, stopped and gone tasks fold into one `N closed: …` line.
 - **Sessions:** every live session with its account, folder, what it does now, model, context
   and cost. A session that spends another account's quota (read from its weekly reset) is marked
   `uses quota of B`.

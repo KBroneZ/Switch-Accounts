@@ -171,6 +171,8 @@ export type DeckView = {
   confirmStop: string | null
   confirmAt: number | null
   isFormOpen: boolean
+  /** The task row whose controls (message, priority, stop) are unfolded; absent in older values. */
+  openTask?: string | null
 }
 
 /** One usage window of another provider's subscription. */

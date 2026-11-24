@@ -208,7 +208,7 @@ function seed(on: Parameters<TestBody>[1], view: FleetView, deck: DeckView) {
 }
 
 test('the desktop Deck draws gauges, the hub lanes and their controls', async ($, on) => {
-  seed(on, viewWith(hubView(true)), { ...EMPTY, isFormOpen: true, note: 'Message 1 queued for w1; it gets there once the worker is free.' })
+  seed(on, viewWith(hubView(true)), { ...EMPTY, isFormOpen: true, openTask: 'w1', note: 'Message 1 queued for w1; it gets there once the worker is free.' })
   for (const surface of ['desktop', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ type: 'Text', text: /FLEET DECK/ })).toBeDefined()
@@ -221,7 +221,7 @@ test('the desktop Deck draws gauges, the hub lanes and their controls', async ($
     expect(await ui.find({ type: 'Text', text: /Message 1 queued/ })).toBeDefined()
     expect(await ui.find({ key: 'open-B' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Fix the login$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /▲ high/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^▲$/ })).toBeDefined()
     expect(await ui.find({ key: 'prio-w1' })).toBeDefined()
     expect(await ui.find({ key: 'nw-priority' })).toBeDefined()
     await ui.unmount()
@@ -231,7 +231,7 @@ test('the desktop Deck draws gauges, the hub lanes and their controls', async ($
 test('outside the hub the Deck shows the lanes without controls', async ($, on) => {
   seed(on, viewWith(hubView(false)), EMPTY)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /The controls are in the sessions of account A/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / · controls in A$/ })).toBeDefined()
   expect(await ui.find({ key: 'msg-w1' })).toBeUndefined()
   expect(await ui.find({ key: 'nw-toggle' })).toBeUndefined()
   await ui.unmount()
@@ -245,9 +245,27 @@ test('the stop button asks for a second press, armed for a few seconds only', as
 })
 
 test('a first stop press long ago is no longer armed', async ($, on) => {
-  seed(on, viewWith(hubView(true)), { ...EMPTY, confirmStop: 'w1', confirmAt: NOW - 60_000 })
+  seed(on, viewWith(hubView(true)), { ...EMPTY, openTask: 'w1', confirmStop: 'w1', confirmAt: NOW - 60_000 })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ key: 'stop-w1' }))?.text).not.toContain('press again')
+  await ui.unmount()
+})
+
+test('a task is one folded line until unfolded', async ($, on) => {
+  seed(on, viewWith(hubView(true)), EMPTY)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Fix the login$/ })).toBeDefined()
+  expect((await ui.find({ key: 'fold-w1' }))?.text).toContain('▸')
+  expect(await ui.find({ key: 'msg-w1' })).toBeUndefined()
+  expect(await ui.find({ key: 'stop-w1' })).toBeUndefined()
+  expect(await ui.find({ key: 'tasks' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a stop waiting for its second press keeps the row unfolded', async ($, on) => {
+  seed(on, viewWith(hubView(true)), { ...EMPTY, confirmStop: 'w1', confirmAt: NOW - 2_000 })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ key: 'stop-w1' })).toBeDefined()
   await ui.unmount()
 })
 
